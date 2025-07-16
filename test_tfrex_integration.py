@@ -36,7 +36,7 @@ def test_tfrex_extraction():
         logger.info("Preprocessing reviews...")
         processed_reviews = []
         for review in sample_reviews:
-            processed = preprocessor.preprocess_for_feature_extraction(review)
+            processed = preprocessor.clean_text(review)
             processed_reviews.append(processed)
             logger.info(f"Original: {review}")
             logger.info(f"Processed: {processed}")
