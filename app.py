@@ -13,6 +13,7 @@ from services.neo4j_service import Neo4jConnection
 from services.preprocessing_service import ReviewPreprocessor
 from services.feature_extraction_service import FeatureExtractor
 from services.clustering_service import HierarchicalClusterer
+from services.taxonomy_service import TaxonomyBuilder
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -25,6 +26,7 @@ neo4j_conn = Neo4jConnection()
 preprocessor = ReviewPreprocessor()
 feature_extractor = FeatureExtractor()
 clusterer = HierarchicalClusterer()
+taxonomy_builder = TaxonomyBuilder(neo4j_conn)
 
 
 @app.route('/ping')
@@ -41,51 +43,32 @@ def health_check():
                     return {"status": "healthy", "database": neo4j_conn.database, "uri": neo4j_conn.uri}
         except:
             pass
-        return {"status": "unhealthy", "error": "Cannot connect to Neo4j", "database": neo4j_conn.database, "uri": neo4j_conn.uri}
+        return {"status": "unhealthy", "error": "Cannot connect to Neo4j", "database": neo4j_conn.database,
+                "uri": neo4j_conn.uri}
 
     def check_tfrex_model():
         try:
             if feature_extractor.model and feature_extractor.tokenizer:
                 test = feature_extractor.extract_features(["test app notification"])
                 is_valid = test is not None and hasattr(test, '__len__') and len(test) > 0
-                return {
-                    "status": "healthy",
-                    "model_name": feature_extractor.model_name,
-                    "test_result": is_valid
-                }
+                return {"status": "healthy", "model_name": feature_extractor.model_name, "test_result": is_valid}
             else:
                 raise ValueError("Model or tokenizer not loaded")
         except Exception as e:
-            return {
-                "status": "unhealthy",
-                "error": str(e),
-                "model_name": getattr(feature_extractor, "model_name", "unknown")
-            }
+            return {"status": "unhealthy", "error": str(e),
+                    "model_name": getattr(feature_extractor, "model_name", "unknown")}
 
     def check_embedding_model():
         try:
             if feature_extractor.embedding_model:
                 test_embeddings = feature_extractor.get_embeddings(["test text"])
-
-                is_valid = (
-                        test_embeddings is not None and
-                        hasattr(test_embeddings, 'shape') and
-                        test_embeddings.shape[0] > 0
-                )
-
-                return {
-                    "status": "healthy",
-                    "model_name": "all-MiniLM-L6-v2",
-                    "test_result": is_valid
-                }
+                is_valid = test_embeddings is not None and hasattr(test_embeddings, 'shape') and test_embeddings.shape[
+                    0] > 0
+                return {"status": "healthy", "model_name": "all-MiniLM-L6-v2", "test_result": is_valid}
             else:
                 raise ValueError("Embedding model not loaded")
         except Exception as e:
-            return {
-                "status": "unhealthy",
-                "error": str(e),
-                "model_name": "all-MiniLM-L6-v2"
-            }
+            return {"status": "unhealthy", "error": str(e), "model_name": "all-MiniLM-L6-v2"}
 
     def check_nltk_data():
         try:
@@ -126,26 +109,11 @@ def health_check():
             "reserved": torch.cuda.memory_reserved(0)
         }
 
-    # Determine overall health
     all_statuses = list(health_status["services"].values()) + list(health_status["models"].values())
     health_status["status"] = "healthy" if all(s["status"] == "healthy" for s in all_statuses) else "unhealthy"
     status_code = 200 if health_status["status"] == "healthy" else 503
 
     return jsonify(health_status), status_code
-
-
-@app.route('/process_reviews', methods=['POST'])
-def process_reviews():
-    try:
-        data = request.get_json()
-        csv_data = data.get('csv_data', '')
-        if not csv_data:
-            return jsonify({"error": "No CSV data provided"}), 400
-        return _process_csv_data(csv_data)
-
-    except Exception as e:
-        logger.error(f"Error processing reviews: {str(e)}")
-        return jsonify({"error": str(e)}), 500
 
 
 @app.route('/process_reviews/upload', methods=['POST'])
@@ -162,11 +130,22 @@ def process_reviews_upload():
             return jsonify({"error": "File must be a CSV"}), 400
 
         csv_content = file.read().decode('utf-8')
-
         return _process_csv_data(csv_content)
 
     except Exception as e:
         logger.error(f"Error processing uploaded file: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/get_app_clustering/<app_name>')
+def get_app_clustering(app_name):
+    try:
+        clustering = neo4j_conn.get_app_clustering(app_name)
+        if not clustering:
+            return jsonify({"error": "No clustering results found for this app"}), 404
+        return jsonify({"app_name": app_name, "clustering": clustering})
+    except Exception as e:
+        logger.error(f"Error getting clustering data: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -175,13 +154,7 @@ def get_app_data(app_name):
     try:
         reviews = neo4j_conn.get_app_reviews(app_name)
         features = neo4j_conn.get_app_features(app_name)
-
-        return jsonify({
-            "app_name": app_name,
-            "reviews": reviews,
-            "features": features
-        })
-
+        return jsonify({"app_name": app_name, "reviews": reviews, "features": features})
     except Exception as e:
         logger.error(f"Error getting app data: {str(e)}")
         return jsonify({"error": str(e)}), 500
@@ -192,33 +165,20 @@ def cluster_features(app_name):
     try:
         height_threshold = float(request.args.get('height_threshold', 0.5))
         sibling_threshold = float(request.args.get('sibling_threshold', 0.3))
-
-        # Get app features
         features_data = neo4j_conn.get_app_features(app_name)
 
         if not features_data:
             return jsonify({"error": "No features found for this app"}), 404
 
-        # Extract all features
-        all_features = []
-        for feature_data in features_data:
-            features = json.loads(feature_data['features']) if feature_data['features'] else []
-            all_features.extend(features)
-
-        # Remove duplicates
+        all_features = [f['feature_name'] for f in features_data if 'feature_name' in f]
         unique_features = list(set(all_features))
 
         if len(unique_features) < 2:
             return jsonify({"error": "Not enough features for clustering"}), 400
 
-        # Get embeddings
         embeddings = feature_extractor.get_embeddings(unique_features)
-
-        # Update clustering thresholds
         clusterer.height_threshold = height_threshold
         clusterer.sibling_threshold = sibling_threshold
-
-        # Perform clustering
         clustering_result = clusterer.perform_clustering(unique_features, embeddings)
 
         return jsonify({
@@ -229,113 +189,193 @@ def cluster_features(app_name):
                 "sibling_threshold": sibling_threshold
             }
         })
-
     except Exception as e:
         logger.error(f"Error clustering features: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 
+def _parse_csv_data(csv_data):
+    csv_reader = csv.DictReader(csv_data.splitlines())
+    reviews_data = list(csv_reader)
+
+    if not reviews_data:
+        raise ValueError("No reviews found in CSV")
+
+    apps = {}
+    for row in reviews_data:
+        app_name = row['app_name']
+        if app_name not in apps:
+            apps[app_name] = {
+                'package': row['app_package'],
+                'category': row['app_categoryId'],
+                'reviews': []
+            }
+        apps[app_name]['reviews'].append(row)
+
+    return apps
+
+
+def _process_app_reviews(app_name, reviews):
+    logger.info(f"Processing app: {app_name}")
+
+    processed_reviews = []
+    all_processed_texts = []
+
+    for review in reviews:
+        original_text = review['review']
+        processed_text = preprocessor.preprocess_text(original_text)
+        processed_reviews.append({
+            'review_id': review['reviewId'],
+            'processed_text': processed_text,
+            'original_text': original_text,
+            'score': int(review['score'])
+        })
+        all_processed_texts.append(processed_text)
+
+    features_per_review = feature_extractor.extract_features(all_processed_texts)
+
+    return processed_reviews, features_per_review
+
+
+def _store_app_data(app_name, app_data, processed_reviews, features_per_review):
+    # Create app node
+    neo4j_conn.create_app_node(app_name, app_data['package'], app_data['category'])
+
+    # Store reviews with features
+    for i, review_data in enumerate(processed_reviews):
+        review_features = features_per_review[i] if i < len(features_per_review) else []
+        neo4j_conn.create_review_with_features(
+            app_name,
+            review_data['review_id'],
+            review_data['processed_text'],
+            review_data['original_text'],
+            review_data['score'],
+            review_features
+        )
+
+
+def _extract_and_aggregate_features(features_per_review):
+    all_features = []
+    for features in features_per_review:
+        all_features.extend(features)
+
+    unique_features = list(set(all_features))
+    return all_features, unique_features
+
+
+def _perform_clustering_analysis(app_name, unique_features):
+    if len(unique_features) < 4:
+        return {
+            "auto_tuning_completed": False,
+            "message": f"Need at least 4 features for clustering. Found {len(unique_features)}."
+        }
+
+    logger.info("Performing hierarchical clustering with active learning...")
+    feature_embeddings = feature_extractor.get_embeddings(unique_features)
+    tuning_result = clusterer.auto_tune_clustering(unique_features, feature_embeddings)
+    best_options = tuning_result['best_options']
+
+    saved_clusterings = []
+    for i, option in enumerate(best_options):
+        clustering_data = option['clustering']
+        clustering_data['metrics'] = option['metrics']
+        clustering_data['height_threshold'] = option['threshold']
+        clustering_data['sibling_threshold'] = clusterer.sibling_threshold
+        session_id = f"{app_name}_clustering_{i + 1}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        clustering_data = convert_numpy_types(clustering_data)
+        neo4j_conn.create_clustering_result(app_name, clustering_data, session_id)
+        saved_clusterings.append({
+            "session_id": session_id,
+            "ranking": i + 1,
+            "threshold": option['threshold'],
+            "metrics": option['metrics'],
+            "clustering": clustering_data
+        })
+
+    return {
+        "auto_tuning_completed": True,
+        "best_options": saved_clusterings,
+        "recommendation": saved_clusterings[0] if saved_clusterings else None,
+        "message": "Multiple clustering options generated and saved. Best option recommended."
+    }
+
+
+def _build_taxonomy(app_name, unique_features):
+    if len(unique_features) >= 4:
+        feature_embeddings = feature_extractor.get_embeddings(unique_features)
+        return taxonomy_builder.build_and_store_taxonomy(app_name, unique_features, feature_embeddings)
+    return None
+
+
+def _create_app_result(processed_reviews, all_features, unique_features, clustering_results, taxonomy_result):
+    return {
+        'processed_reviews': len(processed_reviews),
+        'total_features': len(all_features),
+        'unique_features': len(unique_features),
+        'clustering_results': clustering_results,
+        'top_features': dict(sorted(Counter(all_features).items(), key=lambda x: x[1], reverse=True)[:10]),
+        'taxonomy': taxonomy_result
+    }
+
+
 def _process_csv_data(csv_data):
     try:
-        csv_reader = csv.DictReader(csv_data.splitlines())
-        reviews_data = list(csv_reader)
-
-        if not reviews_data:
-            return jsonify({"error": "No reviews found in CSV"}), 400
-
-        apps = {}
-        for row in reviews_data:
-            app_name = row['app_name']
-            if app_name not in apps:
-                apps[app_name] = {
-                    'package': row['app_package'],
-                    'category': row['app_categoryId'],
-                    'reviews': []
-                }
-            apps[app_name]['reviews'].append(row)
-
+        # Parse CSV and group by apps
+        apps = _parse_csv_data(csv_data)
         results = {}
 
+        # Process each app
         for app_name, app_data in apps.items():
-            logger.info(f"Processing app: {app_name}")
+            # Process reviews and extract features
+            processed_reviews, features_per_review = _process_app_reviews(app_name, app_data['reviews'])
 
-            # Create app node
-            neo4j_conn.create_app_node(app_name, app_data['package'], app_data['category'])
+            # Store in Neo4j
+            _store_app_data(app_name, app_data, processed_reviews, features_per_review)
 
-            # Process reviews
-            processed_reviews = []
-            all_processed_texts = []
+            # Aggregate features
+            all_features, unique_features = _extract_and_aggregate_features(features_per_review)
+            logger.info(f"Found {len(unique_features)} unique features")
 
-            for review in app_data['reviews']:
-                original_text = review['review']
-                processed_text = preprocessor.preprocess_text(original_text)
+            # Perform clustering analysis
+            clustering_results = _perform_clustering_analysis(app_name, unique_features)
 
-                processed_reviews.append({
-                    'review_id': review['reviewId'],
-                    'processed_text': processed_text,
-                    'original_text': original_text,
-                    'score': int(review['score'])
-                })
+            # Build taxonomy
+            taxonomy_result = _build_taxonomy(app_name, unique_features)
 
-                all_processed_texts.append(processed_text)
-
-            # Extract features using T-FREX
-            logger.info(f"Extracting features for {len(all_processed_texts)} reviews")
-            features_per_review = feature_extractor.extract_features(all_processed_texts)
-
-            # Get embeddings for clustering
-            embeddings = feature_extractor.get_embeddings(all_processed_texts)
-
-            # Collect all features for clustering
-            all_features = []
-            for features in features_per_review:
-                all_features.extend(features)
-
-            # Remove duplicates for clustering
-            unique_features = list(set(all_features))
-
-            # Perform clustering if we have enough features
-            clustering_result = {}
-            if len(unique_features) >= 2:
-                feature_embeddings = feature_extractor.get_embeddings(unique_features)
-                clustering_result = clusterer.perform_clustering(unique_features, feature_embeddings)
-
-            # Calculate word statistics
-            word_stats = dict(Counter(all_features))
-
-            # Save to Neo4j
-            for i, review_data in enumerate(processed_reviews):
-                review_features = features_per_review[i] if i < len(features_per_review) else []
-                neo4j_conn.create_review_node(
-                    app_name,
-                    review_data['review_id'],
-                    review_data['processed_text'],
-                    review_data['original_text'],
-                    review_data['score'],
-                    review_features
-                )
-
-            # Save feature statistics
-            neo4j_conn.create_feature_statistics(app_name, word_stats)
-
-            results[app_name] = {
-                'processed_reviews': len(processed_reviews),
-                'total_features': len(all_features),
-                'unique_features': len(unique_features),
-                'clustering_result': clustering_result,
-                'top_features': dict(sorted(word_stats.items(), key=lambda x: x[1], reverse=True)[:10])
-            }
+            # Create result summary
+            results[app_name] = _create_app_result(
+                processed_reviews, all_features, unique_features,
+                clustering_results, taxonomy_result
+            )
 
         return jsonify({
             "status": "success",
-            "message": "Reviews processed successfully",
+            "message": "Complete pipeline executed: CSV -> preprocessing -> Neo4j -> clustering -> taxonomy",
             "results": results
         })
 
     except Exception as e:
-        logger.error(f"Error processing CSV data: {str(e)}")
+        logger.error(f"Error in complete pipeline: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
+
+def convert_numpy_types(obj):
+    import numpy as np
+    if isinstance(obj, dict):
+        return {str(key) if isinstance(key, np.integer) else key: convert_numpy_types(value) for key, value in
+                obj.items()}
+    elif isinstance(obj, list):
+        return [convert_numpy_types(item) for item in obj]
+    elif isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    else:
+        return obj
 
 
 if __name__ == '__main__':
