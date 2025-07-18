@@ -8,6 +8,7 @@ import logging
 import sys
 from datetime import datetime
 from collections import Counter
+import requests
 
 from services.neo4j_service import Neo4jConnection
 from services.preprocessing_service import ReviewPreprocessor
@@ -62,8 +63,7 @@ def health_check():
         try:
             if feature_extractor.embedding_model:
                 test_embeddings = feature_extractor.get_embeddings(["test text"])
-                is_valid = test_embeddings is not None and hasattr(test_embeddings, 'shape') and test_embeddings.shape[
-                    0] > 0
+                is_valid = test_embeddings is not None and hasattr(test_embeddings, 'shape') and test_embeddings.shape[0] > 0
                 return {"status": "healthy", "model_name": "all-MiniLM-L6-v2", "test_result": is_valid}
             else:
                 raise ValueError("Embedding model not loaded")
@@ -82,11 +82,37 @@ def health_check():
         except Exception as e:
             return {"status": "unhealthy", "error": str(e)}
 
+    def check_ollama():
+        try:
+            response = requests.get("http://localhost:11434/api/tags", timeout=3)
+            if response.status_code != 200:
+                return {"status": "unhealthy", "error": f"Status code: {response.status_code}"}
+
+            models = response.json().get("models", [])
+            qwen_installed = any("qwen" in model.get("name", "").lower() for model in models)
+
+            if not qwen_installed:
+                return {"status": "unhealthy", "error": "Qwen model not found in Ollama"}
+
+            chat_resp = requests.post(
+                "http://localhost:11434/api/chat",
+                json={"model": "qwen:7b", "messages": [{"role": "user", "content": "Say hello"}]},
+                timeout=5
+            )
+
+            if chat_resp.status_code == 200:
+                return {"status": "healthy", "model": "qwen:7b"}
+            else:
+                return {"status": "unhealthy", "error": f"Chat failed with status {chat_resp.status_code}"}
+        except Exception as e:
+            return {"status": "unhealthy", "error": str(e), "model": "qwen:7b"}
+
     health_status = {
         "timestamp": datetime.now().isoformat(),
         "services": {
             "neo4j": check_neo4j(),
-            "nltk": check_nltk_data()
+            "nltk": check_nltk_data(),
+            "ollama": check_ollama()
         },
         "models": {
             "tfrex": check_tfrex_model(),
@@ -194,6 +220,47 @@ def cluster_features(app_name):
         return jsonify({"error": str(e)}), 500
 
 
+@app.route('/save_selected_clustering/<app_name>', methods=['POST'])
+def save_selected_clustering(app_name):
+    try:
+        data = request.get_json()
+
+        # Accept directly under 'clustering' key instead of 'clustering_result'
+        if "clustering" not in data:
+            return jsonify({"error": "Missing 'clustering' in request body"}), 400
+
+        clustering_result = convert_numpy_types(data["clustering"])
+
+        # Save to Neo4j
+        neo4j_conn.create_clustering_result(app_name, clustering_result)
+
+        return jsonify({
+            "status": "success",
+            "message": f"Clustering saved for app '{app_name}'",
+            "n_clusters": clustering_result.get("n_clusters"),
+            "metrics": clustering_result.get("metrics")
+        })
+
+    except Exception as e:
+        logger.error(f"Error saving clustering result: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/get_app_subclusters/<app_name>')
+def get_app_subclusters(app_name):
+    try:
+        with neo4j_conn.driver.session(database=neo4j_conn.database) as session:
+            result = session.run("""
+                MATCH (a:App {name: $app_name})-[:HAS_SUBCLUSTER]->(sc:Subcluster)
+                RETURN sc.cluster_id AS cluster_id, sc.features AS features, sc.session_id AS session_id
+                ORDER BY sc.cluster_id
+            """, app_name=app_name)
+            return jsonify([record.data() for record in result])
+    except Exception as e:
+        logger.error(f"Error fetching subclusters: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
 def _parse_csv_data(csv_data):
     csv_reader = csv.DictReader(csv_data.splitlines())
     reviews_data = list(csv_reader)
@@ -275,35 +342,52 @@ def _perform_clustering_analysis(app_name, unique_features):
     tuning_result = clusterer.auto_tune_clustering(unique_features, feature_embeddings)
     best_options = tuning_result['best_options']
 
-    saved_clusterings = []
+    clustering_candidates = []
     for i, option in enumerate(best_options):
         clustering_data = option['clustering']
         clustering_data['metrics'] = option['metrics']
         clustering_data['height_threshold'] = option['threshold']
         clustering_data['sibling_threshold'] = clusterer.sibling_threshold
-        session_id = f"{app_name}_clustering_{i + 1}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         clustering_data = convert_numpy_types(clustering_data)
-        neo4j_conn.create_clustering_result(app_name, clustering_data, session_id)
-        saved_clusterings.append({
-            "session_id": session_id,
-            "ranking": i + 1,
-            "threshold": option['threshold'],
-            "metrics": option['metrics'],
+
+        clusters = clustering_data.get("clusters", {})
+        n_clusters = len(clusters)
+        avg_cluster_size = round(
+            sum(len(v) for v in clusters.values()) / n_clusters if n_clusters > 0 else 0, 2
+        )
+        top_features = []
+        for cluster in list(clusters.values())[:3]:
+            if cluster:
+                top_features.append(cluster[0])
+
+        metrics = option["metrics"]
+
+        summary = {
+            "index": i,
+            "threshold": option["threshold"],
+            "n_clusters": n_clusters,
+            "avg_cluster_size": avg_cluster_size,
+            "top_features": top_features,
+            "metrics": metrics,
+
+        }
+
+        clustering_candidates.append({
+            "summary": summary,
             "clustering": clustering_data
         })
 
     return {
         "auto_tuning_completed": True,
-        "best_options": saved_clusterings,
-        "recommendation": saved_clusterings[0] if saved_clusterings else None,
-        "message": "Multiple clustering options generated and saved. Best option recommended."
+        "candidates": clustering_candidates,
+        "message": "Top clustering candidates generated. Use summary to choose one and save via /save_selected_clustering."
     }
 
 
-def _build_taxonomy(app_name, unique_features):
+def _build_taxonomy(app_name, unique_features, method="bert"):
     if len(unique_features) >= 4:
         feature_embeddings = feature_extractor.get_embeddings(unique_features)
-        return taxonomy_builder.build_and_store_taxonomy(app_name, unique_features, feature_embeddings)
+        return taxonomy_builder.build_and_store_taxonomy(app_name, unique_features, feature_embeddings, method=method)
     return None
 
 
