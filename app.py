@@ -5,22 +5,30 @@ from flask import Flask, request, jsonify
 import csv
 import json
 import logging
+import logging
 import sys
 from datetime import datetime
 from collections import Counter
 import requests
-
+from sklearn.metrics import jaccard_score
+from sklearn.preprocessing import MultiLabelBinarizer
 from services.neo4j_service import Neo4jConnection
 from services.preprocessing_service import ReviewPreprocessor
 from services.feature_extraction_service import FeatureExtractor
 from services.clustering_service import HierarchicalClusterer
 from services.taxonomy_service import TaxonomyBuilder
+from config import config
+from utils.health_checks import (
+    check_transfeatex, check_tfrex_model, check_embedding_model,
+    check_nltk_data, check_ollama, check_neo4j
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+app.config.from_object(config['default'])
 
 # Initialize services
 neo4j_conn = Neo4jConnection()
@@ -37,93 +45,23 @@ def ping():
 
 @app.route('/health')
 def health_check():
-    def check_neo4j():
-        try:
-            with neo4j_conn.driver.session(database=neo4j_conn.database) as session:
-                if session.run("RETURN 1 as test").single()["test"] == 1:
-                    return {"status": "healthy", "database": neo4j_conn.database, "uri": neo4j_conn.uri}
-        except:
-            pass
-        return {"status": "unhealthy", "error": "Cannot connect to Neo4j", "database": neo4j_conn.database,
-                "uri": neo4j_conn.uri}
-
-    def check_tfrex_model():
-        try:
-            if feature_extractor.model and feature_extractor.tokenizer:
-                test = feature_extractor.extract_features(["test app notification"])
-                is_valid = test is not None and hasattr(test, '__len__') and len(test) > 0
-                return {"status": "healthy", "model_name": feature_extractor.model_name, "test_result": is_valid}
-            else:
-                raise ValueError("Model or tokenizer not loaded")
-        except Exception as e:
-            return {"status": "unhealthy", "error": str(e),
-                    "model_name": getattr(feature_extractor, "model_name", "unknown")}
-
-    def check_embedding_model():
-        try:
-            if feature_extractor.embedding_model:
-                test_embeddings = feature_extractor.get_embeddings(["test text"])
-                is_valid = test_embeddings is not None and hasattr(test_embeddings, 'shape') and test_embeddings.shape[0] > 0
-                return {"status": "healthy", "model_name": "all-MiniLM-L6-v2", "test_result": is_valid}
-            else:
-                raise ValueError("Embedding model not loaded")
-        except Exception as e:
-            return {"status": "unhealthy", "error": str(e), "model_name": "all-MiniLM-L6-v2"}
-
-    def check_nltk_data():
-        try:
-            required = ['punkt', 'stopwords', 'wordnet']
-            for item in required:
-                try:
-                    nltk.data.find(f'corpora/{item}' if item != 'punkt' else f'tokenizers/{item}')
-                except LookupError:
-                    nltk.download(item)
-            return {"status": "healthy", "data_available": required}
-        except Exception as e:
-            return {"status": "unhealthy", "error": str(e)}
-
-    def check_ollama():
-        try:
-            response = requests.get("http://localhost:11434/api/tags", timeout=3)
-            if response.status_code != 200:
-                return {"status": "unhealthy", "error": f"Status code: {response.status_code}"}
-
-            models = response.json().get("models", [])
-            qwen_installed = any("qwen" in model.get("name", "").lower() for model in models)
-
-            if not qwen_installed:
-                return {"status": "unhealthy", "error": "Qwen model not found in Ollama"}
-
-            chat_resp = requests.post(
-                "http://localhost:11434/api/chat",
-                json={"model": "qwen:7b", "messages": [{"role": "user", "content": "Say hello"}]},
-                timeout=5
-            )
-
-            if chat_resp.status_code == 200:
-                return {"status": "healthy", "model": "qwen:7b"}
-            else:
-                return {"status": "unhealthy", "error": f"Chat failed with status {chat_resp.status_code}"}
-        except Exception as e:
-            return {"status": "unhealthy", "error": str(e), "model": "qwen:7b"}
-
     health_status = {
         "timestamp": datetime.now().isoformat(),
         "services": {
-            "neo4j": check_neo4j(),
+            "neo4j": check_neo4j(neo4j_conn),
             "nltk": check_nltk_data(),
-            "ollama": check_ollama()
+            "ollama": check_ollama(app.config),
         },
         "models": {
-            "tfrex": check_tfrex_model(),
-            "embeddings": check_embedding_model()
+            "tfrex": check_tfrex_model(feature_extractor),
+            "embeddings": check_embedding_model(feature_extractor),
+            "transfeatex": check_transfeatex()
         },
         "system": {
             "python_version": sys.version,
             "cpu_usage": psutil.cpu_percent(),
             "memory_usage": psutil.virtual_memory().percent,
             "disk_usage": psutil.disk_usage('/').percent,
-            "cuda_available": torch.cuda.is_available(),
             "torch_version": torch.__version__
         }
     }
@@ -156,7 +94,8 @@ def process_reviews_upload():
             return jsonify({"error": "File must be a CSV"}), 400
 
         csv_content = file.read().decode('utf-8')
-        return _process_csv_data(csv_content)
+        extractor = get_feature_extractor()
+        return _process_csv_data(csv_content, extractor)
 
     except Exception as e:
         logger.error(f"Error processing uploaded file: {str(e)}")
@@ -225,14 +164,26 @@ def save_selected_clustering(app_name):
     try:
         data = request.get_json()
 
-        # Accept directly under 'clustering' key instead of 'clustering_result'
         if "clustering" not in data:
             return jsonify({"error": "Missing 'clustering' in request body"}), 400
 
         clustering_result = convert_numpy_types(data["clustering"])
 
-        # Save to Neo4j
+        clusters = clustering_result.get("clusters", {})
+        logger.info(f"Generating semantic labels for {len(clusters)} clusters in '{app_name}'...")
+
+        root_names = {}
+        for cluster_id, features in clusters.items():
+            label = generate_cluster_label(features)
+            root_names[cluster_id] = label
+
+        hierarchy = clustering_result.setdefault("hierarchy", {})
+        for cluster_id in clusters:
+            hierarchy.setdefault(cluster_id, {})
+            hierarchy[cluster_id]["semantic_label"] = root_names[cluster_id]
+
         neo4j_conn.create_clustering_result(app_name, clustering_result)
+        logger.info(f"Clustering result saved for '{app_name}'.")
 
         return jsonify({
             "status": "success",
@@ -244,7 +195,6 @@ def save_selected_clustering(app_name):
     except Exception as e:
         logger.error(f"Error saving clustering result: {str(e)}")
         return jsonify({"error": str(e)}), 500
-
 
 @app.route('/get_app_subclusters/<app_name>')
 def get_app_subclusters(app_name):
@@ -282,7 +232,7 @@ def _parse_csv_data(csv_data):
     return apps
 
 
-def _process_app_reviews(app_name, reviews):
+def _process_app_reviews(app_name, reviews, extractor):
     logger.info(f"Processing app: {app_name}")
 
     processed_reviews = []
@@ -299,9 +249,9 @@ def _process_app_reviews(app_name, reviews):
         })
         all_processed_texts.append(processed_text)
 
-    features_per_review = feature_extractor.extract_features(all_processed_texts)
-
+    features_per_review = extractor.extract_features(all_processed_texts)
     return processed_reviews, features_per_review
+
 
 
 def _store_app_data(app_name, app_data, processed_reviews, features_per_review):
@@ -329,8 +279,24 @@ def _extract_and_aggregate_features(features_per_review):
     unique_features = list(set(all_features))
     return all_features, unique_features
 
+def compute_jaccard_similarity(candidate_a, candidate_b):
+    def flatten_clusters(clustering):
+        return list(clustering.get("clusters", {}).values())
 
-def _perform_clustering_analysis(app_name, unique_features):
+    clusters1 = flatten_clusters(candidate_a["clustering"])
+    clusters2 = flatten_clusters(candidate_b["clustering"])
+
+    if not clusters1 or not clusters2:
+        return 0.0
+
+    mlb = MultiLabelBinarizer()
+    all_features = clusters1 + clusters2
+    binarized = mlb.fit_transform(all_features)
+    vec1 = binarized[:len(clusters1)].sum(axis=0)
+    vec2 = binarized[len(clusters1):].sum(axis=0)
+    return jaccard_score(vec1, vec2)
+
+def _perform_clustering_analysis(app_name, unique_features, taxonomy_tree=None):
     if len(unique_features) < 4:
         return {
             "auto_tuning_completed": False,
@@ -350,17 +316,18 @@ def _perform_clustering_analysis(app_name, unique_features):
         clustering_data['sibling_threshold'] = clusterer.sibling_threshold
         clustering_data = convert_numpy_types(clustering_data)
 
-        clusters = clustering_data.get("clusters", {})
-        n_clusters = len(clusters)
-        avg_cluster_size = round(
-            sum(len(v) for v in clusters.values()) / n_clusters if n_clusters > 0 else 0, 2
-        )
-        top_features = []
-        for cluster in list(clusters.values())[:3]:
-            if cluster:
-                top_features.append(cluster[0])
+        if taxonomy_tree:
+            clustering_data["hierarchy"] = {}
+            for cluster_id, cluster_features in clustering_data["clusters"].items():
+                clustering_data["hierarchy"][str(cluster_id)] = taxonomy_builder._extract_subtree_structures(
+                    cluster_features, taxonomy_tree
+                )
 
-        metrics = option["metrics"]
+        n_clusters = len(clustering_data.get("clusters", {}))
+        avg_cluster_size = round(
+            sum(len(v) for v in clustering_data["clusters"].values()) / n_clusters if n_clusters > 0 else 0, 2
+        )
+        top_features = [c[0] for c in list(clustering_data["clusters"].values())[:3] if c]
 
         summary = {
             "index": i,
@@ -368,14 +335,19 @@ def _perform_clustering_analysis(app_name, unique_features):
             "n_clusters": n_clusters,
             "avg_cluster_size": avg_cluster_size,
             "top_features": top_features,
-            "metrics": metrics,
-
+            "metrics": option["metrics"]
         }
 
         clustering_candidates.append({
             "summary": summary,
             "clustering": clustering_data
         })
+
+    # Add similarity to best candidate
+    best_candidate = clustering_candidates[0]
+    for candidate in clustering_candidates:
+        similarity = compute_jaccard_similarity(best_candidate, candidate)
+        candidate["summary"]["similarity_to_best"] = round(similarity, 4)
 
     return {
         "auto_tuning_completed": True,
@@ -402,31 +374,32 @@ def _create_app_result(processed_reviews, all_features, unique_features, cluster
     }
 
 
-def _process_csv_data(csv_data):
+def _process_csv_data(csv_data, extractor=None):
     try:
-        # Parse CSV and group by apps
+        if extractor is None:
+            extractor = get_feature_extractor()
+
         apps = _parse_csv_data(csv_data)
         results = {}
 
-        # Process each app
         for app_name, app_data in apps.items():
-            # Process reviews and extract features
-            processed_reviews, features_per_review = _process_app_reviews(app_name, app_data['reviews'])
-
-            # Store in Neo4j
+            processed_reviews, features_per_review = _process_app_reviews(app_name, app_data['reviews'], extractor)
             _store_app_data(app_name, app_data, processed_reviews, features_per_review)
 
-            # Aggregate features
             all_features, unique_features = _extract_and_aggregate_features(features_per_review)
             logger.info(f"Found {len(unique_features)} unique features")
 
-            # Perform clustering analysis
-            clustering_results = _perform_clustering_analysis(app_name, unique_features)
+            taxonomy_result = _build_taxonomy(app_name, unique_features, extractor)
+            taxonomy_tree = taxonomy_result.get("taxonomy_tree", {}) if taxonomy_result else {}
 
-            # Build taxonomy
-            taxonomy_result = _build_taxonomy(app_name, unique_features)
+            clustering_results = _perform_clustering_analysis(app_name, unique_features, taxonomy_tree, extractor)
+            if clustering_results.get("candidates"):
+                for candidate in clustering_results["candidates"]:
+                    candidate["clustering"]["taxonomy_tree"] = taxonomy_tree
 
-            # Create result summary
+            clustering_results = convert_numpy_types(clustering_results)
+            taxonomy_result = convert_numpy_types(taxonomy_result)
+
             results[app_name] = _create_app_result(
                 processed_reviews, all_features, unique_features,
                 clustering_results, taxonomy_result
@@ -444,7 +417,6 @@ def _process_csv_data(csv_data):
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
-
 def convert_numpy_types(obj):
     import numpy as np
     if isinstance(obj, dict):
@@ -460,6 +432,60 @@ def convert_numpy_types(obj):
         return obj.tolist()
     else:
         return obj
+
+def get_feature_extractor():
+    model_type = request.args.get("model_type", "tfrex").lower()
+    return FeatureExtractor()
+
+
+def generate_cluster_label(features):
+    base_url = app.config['OLLAMA_BASE_URL']
+    model = app.config['OLLAMA_MODEL']
+
+    try:
+        logger.info(f"Requesting label from Qwen for cluster with {len(features)} features.")
+
+        prompt = (
+            "You are an assistant that assigns a single, concise category label to a list of app feature keywords. "
+            "Given the list of features below, respond with only the best possible semantic category name that "
+            "groups them together. Do not explain, just return the name.\n\n"
+            f"Features: {', '.join(features)}\n\n"
+            "Category:"
+        )
+
+        response = requests.post(
+            f"{base_url}/api/chat",
+            json={
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}]
+            },
+            stream=True,
+            timeout=30
+        )
+
+        if response.status_code != 200:
+            logger.warning(f"Ollama returned status {response.status_code} for model '{model}'")
+            return "Unknown"
+
+        full_content = ""
+        for line in response.iter_lines(decode_unicode=True):
+            if not line.strip():
+                continue
+            try:
+                msg = json.loads(line)
+                chunk = msg.get("message", {}).get("content", "")
+                full_content += chunk
+            except Exception as e:
+                logger.warning(f"Skipping malformed line from Ollama: {e}")
+
+        label = full_content.strip() or "Unknown"
+        logger.info(f"Generated label: '{label}' for cluster with features: {features[:3]}...")
+
+        return label
+
+    except Exception as e:
+        logger.error(f"Error generating label with Qwen: {str(e)}")
+        return "Unknown"
 
 
 if __name__ == '__main__':
