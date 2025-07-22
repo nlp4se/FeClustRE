@@ -435,7 +435,7 @@ def convert_numpy_types(obj):
 
 def get_feature_extractor():
     model_type = request.args.get("model_type", "tfrex").lower()
-    return FeatureExtractor()
+    return FeatureExtractor(model_type=model_type)
 
 
 def generate_cluster_label(features):
