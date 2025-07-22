@@ -5,13 +5,10 @@ from flask import Flask, request, jsonify
 import csv
 import json
 import logging
-import logging
 import sys
 from datetime import datetime
 from collections import Counter
 import requests
-from sklearn.metrics import jaccard_score
-from sklearn.preprocessing import MultiLabelBinarizer
 from services.neo4j_service import Neo4jConnection
 from services.preprocessing_service import ReviewPreprocessor
 from services.feature_extraction_service import FeatureExtractor
@@ -35,7 +32,7 @@ neo4j_conn = Neo4jConnection()
 preprocessor = ReviewPreprocessor()
 feature_extractor = FeatureExtractor()
 clusterer = HierarchicalClusterer()
-taxonomy_builder = TaxonomyBuilder(neo4j_conn)
+taxonomy_builder = TaxonomyBuilder(neo4j_conn, feature_extractor)
 
 
 @app.route('/ping')
@@ -177,6 +174,10 @@ def save_selected_clustering(app_name):
             label = generate_cluster_label(features)
             root_names[cluster_id] = label
 
+            logger.info(f"LLM Tag for cluster {cluster_id}: '{label}'")
+            logger.info(f" → Features ({len(features)}): {features}")
+            taxonomy_builder.store_llm_taxonomy(app_name, clusters, root_names, method="llm-clustering")
+
         hierarchy = clustering_result.setdefault("hierarchy", {})
         for cluster_id in clusters:
             hierarchy.setdefault(cluster_id, {})
@@ -195,6 +196,7 @@ def save_selected_clustering(app_name):
     except Exception as e:
         logger.error(f"Error saving clustering result: {str(e)}")
         return jsonify({"error": str(e)}), 500
+
 
 @app.route('/get_app_subclusters/<app_name>')
 def get_app_subclusters(app_name):
@@ -253,7 +255,6 @@ def _process_app_reviews(app_name, reviews, extractor):
     return processed_reviews, features_per_review
 
 
-
 def _store_app_data(app_name, app_data, processed_reviews, features_per_review):
     # Create app node
     neo4j_conn.create_app_node(app_name, app_data['package'], app_data['category'])
@@ -279,24 +280,33 @@ def _extract_and_aggregate_features(features_per_review):
     unique_features = list(set(all_features))
     return all_features, unique_features
 
+
 def compute_jaccard_similarity(candidate_a, candidate_b):
-    def flatten_clusters(clustering):
-        return list(clustering.get("clusters", {}).values())
+    import numpy as np
 
-    clusters1 = flatten_clusters(candidate_a["clustering"])
-    clusters2 = flatten_clusters(candidate_b["clustering"])
+    def to_sets(clustering):
+        return [set(cluster) for cluster in clustering.get("clusters", {}).values()]
 
-    if not clusters1 or not clusters2:
+    clusters_a = to_sets(candidate_a["clustering"])
+    clusters_b = to_sets(candidate_b["clustering"])
+
+    if not clusters_a or not clusters_b:
         return 0.0
 
-    mlb = MultiLabelBinarizer()
-    all_features = clusters1 + clusters2
-    binarized = mlb.fit_transform(all_features)
-    vec1 = binarized[:len(clusters1)].sum(axis=0)
-    vec2 = binarized[len(clusters1):].sum(axis=0)
-    return jaccard_score(vec1, vec2)
+    similarities = []
+    for ca in clusters_a:
+        best = 0.0
+        for cb in clusters_b:
+            intersection = len(ca & cb)
+            union = len(ca | cb)
+            score = intersection / union if union else 0.0
+            best = max(best, score)
+        similarities.append(best)
 
-def _perform_clustering_analysis(app_name, unique_features, taxonomy_tree=None):
+    return round(np.mean(similarities), 4) if similarities else 0.0
+
+
+def _perform_clustering_analysis(app_name, unique_features, taxonomy_tree=None, extractor=None):
     if len(unique_features) < 4:
         return {
             "auto_tuning_completed": False,
@@ -304,7 +314,7 @@ def _perform_clustering_analysis(app_name, unique_features, taxonomy_tree=None):
         }
 
     logger.info("Performing hierarchical clustering with active learning...")
-    feature_embeddings = feature_extractor.get_embeddings(unique_features)
+    feature_embeddings = extractor.get_embeddings(unique_features)
     tuning_result = clusterer.auto_tune_clustering(unique_features, feature_embeddings)
     best_options = tuning_result['best_options']
 
@@ -356,7 +366,7 @@ def _perform_clustering_analysis(app_name, unique_features, taxonomy_tree=None):
     }
 
 
-def _build_taxonomy(app_name, unique_features, method="bert"):
+def _build_taxonomy(app_name, unique_features, method="bert", feature_extractor=None):
     if len(unique_features) >= 4:
         feature_embeddings = feature_extractor.get_embeddings(unique_features)
         return taxonomy_builder.build_and_store_taxonomy(app_name, unique_features, feature_embeddings, method=method)
@@ -379,6 +389,8 @@ def _process_csv_data(csv_data, extractor=None):
         if extractor is None:
             extractor = get_feature_extractor()
 
+        logger.info(f"Using model_type='{extractor.model_type}' to process apps")
+
         apps = _parse_csv_data(csv_data)
         results = {}
 
@@ -389,7 +401,8 @@ def _process_csv_data(csv_data, extractor=None):
             all_features, unique_features = _extract_and_aggregate_features(features_per_review)
             logger.info(f"Found {len(unique_features)} unique features")
 
-            taxonomy_result = _build_taxonomy(app_name, unique_features, extractor)
+            taxonomy_result = _build_taxonomy(app_name, unique_features, method=extractor.model_type,
+                                              feature_extractor=extractor)
             taxonomy_tree = taxonomy_result.get("taxonomy_tree", {}) if taxonomy_result else {}
 
             clustering_results = _perform_clustering_analysis(app_name, unique_features, taxonomy_tree, extractor)
@@ -417,6 +430,7 @@ def _process_csv_data(csv_data, extractor=None):
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
+
 def convert_numpy_types(obj):
     import numpy as np
     if isinstance(obj, dict):
@@ -433,6 +447,7 @@ def convert_numpy_types(obj):
     else:
         return obj
 
+
 def get_feature_extractor():
     model_type = request.args.get("model_type", "tfrex").lower()
     return FeatureExtractor(model_type=model_type)
@@ -444,7 +459,8 @@ def generate_cluster_label(features):
 
     try:
         logger.info(f"Requesting label from Qwen for cluster with {len(features)} features.")
-
+        '''
+        NO-SHOT
         prompt = (
             "You are an assistant that assigns a single, concise category label to a list of app feature keywords. "
             "Given the list of features below, respond with only the best possible semantic category name that "
@@ -452,7 +468,49 @@ def generate_cluster_label(features):
             f"Features: {', '.join(features)}\n\n"
             "Category:"
         )
+        '''
 
+        '''
+        Few-SHOT
+        prompt = (
+            "You are an assistant that assigns a single, concise semantic category name to a list of app feature keywords.\n"
+            "Given a set of related feature phrases, return only the best possible category name that groups them together.\n"
+            "Be concise (1–4 words). Do not explain. Do not include quotes or punctuation.\n\n"
+            "Examples:\n"
+            "Features: send message, chat group, reply dm → Messaging\n"
+            "Features: log in, password reset, cannot login → Account Access\n"
+            "Features: freeze screen, crash often, app bug → App Stability\n"
+            "Features: too many ads, ad popup, skip ad → Advertisements\n"
+            "Features: battery drain, overheat, fast battery use → Battery Usage\n"
+            "Features: share file, upload media, download image → File Sharing\n"
+            "Features: update notification, patch note, changelog info → App Updates\n"
+            "Features: clear cache, reinstall app, restart phone → Troubleshooting\n"
+            "Features: UI clutter, confusing layout, bad navigation → User Interface\n"
+            "Features: support email, contact dev, report issue → Customer Support\n\n"
+            f"Features: {', '.join(features)}\n"
+            "Category:"
+        )
+
+        '''
+
+        prompt = (
+            "You are an assistant that assigns a single, concise semantic category name to a list of app feature keywords.\n"
+            "Given a set of related feature phrases, return only the best possible category name that groups them together.\n"
+            "Be concise (1–4 words). Do not explain. Do not include quotes or punctuation.\n\n"
+            "Examples:\n"
+            "Features: send message, chat group, reply dm → Messaging\n"
+            "Features: log in, password reset, cannot login → Account Access\n"
+            "Features: freeze screen, crash often, app bug → App Stability\n"
+            "Features: too many ads, ad popup, skip ad → Advertisements\n"
+            "Features: battery drain, overheat, fast battery use → Battery Usage\n"
+            "Features: share file, upload media, download image → File Sharing\n"
+            "Features: update notification, patch note, changelog info → App Updates\n"
+            "Features: clear cache, reinstall app, restart phone → Troubleshooting\n"
+            "Features: UI clutter, confusing layout, bad navigation → User Interface\n"
+            "Features: support email, contact dev, report issue → Customer Support\n\n"
+            f"Features: {', '.join(features)}\n"
+            "Category:"
+        )
         response = requests.post(
             f"{base_url}/api/chat",
             json={
