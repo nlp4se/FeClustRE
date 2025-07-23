@@ -1,16 +1,17 @@
-import re
 from sklearn.metrics.pairwise import cosine_similarity
-import nltk
+from sklearn.cluster import AgglomerativeClustering
+from collections import defaultdict
+import numpy as np
+import re
 import psutil
 import torch
 from flask import Flask, request, jsonify
 import csv
-import json
 import logging
 import sys
 from datetime import datetime
 from collections import Counter
-import requests
+
 from services.neo4j_service import Neo4jConnection
 from services.preprocessing_service import ReviewPreprocessor
 from services.feature_extraction_service import FeatureExtractor
@@ -81,12 +82,6 @@ def health_check():
 @app.route('/llm_taxonomy_metrics', methods=['GET'])
 def llm_taxonomy_metrics():
     try:
-        from sklearn.metrics.pairwise import cosine_similarity
-        from sklearn.cluster import AgglomerativeClustering
-        from collections import Counter, defaultdict
-        import numpy as np
-        import re
-
         # Step 1: Fetch LLM tags from Neo4j
         with neo4j_conn.driver.session(database=neo4j_conn.database) as session:
             results = session.run("""
@@ -102,15 +97,15 @@ def llm_taxonomy_metrics():
         label_ids, tags = zip(*label_data)
         tag_counter = Counter(tags)
 
-        # Step 2: Count singleton clusters
+        # Step 2: Detect singleton clusters (root with only one child)
         with neo4j_conn.driver.session(database=neo4j_conn.database) as session:
-            result = session.run("""
-                MATCH (n:MiniTaxonomyNode)-[:HAS_CHILD]->(c)
-                WITH c.session_id AS sid, count(c) AS size
-                WHERE size = 1
-                RETURN count(*) AS singleton_count
+            singleton_result = session.run("""
+                MATCH (root:MiniTaxonomyNode)-[:HAS_CHILD]->(child)
+                WITH root, count(child) AS child_count
+                WHERE child_count = 1
+                RETURN root.id AS root_id
             """)
-            singleton_count = result.single()["singleton_count"]
+            singleton_roots = [r["root_id"] for r in singleton_result]
 
         # Step 3: Embed distinct tags
         distinct_tags = list(set(tags))
@@ -119,7 +114,12 @@ def llm_taxonomy_metrics():
 
         # Step 4: Cluster similar tags
         sim_matrix = cosine_similarity(embeddings)
-        clustering = AgglomerativeClustering(n_clusters=None, distance_threshold=0.25, affinity='precomputed', linkage='average')
+        clustering = AgglomerativeClustering(
+            n_clusters=None,
+            distance_threshold=0.25,
+            affinity='precomputed',
+            linkage='average'
+        )
         clusters = clustering.fit(1 - sim_matrix)
 
         clustered_tags = defaultdict(list)
@@ -135,27 +135,46 @@ def llm_taxonomy_metrics():
                 "avg_similarity": round(float(avg_sim), 4),
                 "count": len(tag_list)
             })
-
         cluster_infos.sort(key=lambda x: x["count"], reverse=True)
 
-        # Step 5: Detect low-quality tags
-        low_quality_tags = [tag for tag in distinct_tags if re.fullmatch(r"(Unknown|internal|cluster \d+)", tag.lower())]
+        # Step 5: High similarity tag pairs (e.g., for merging)
+        similar_pairs = []
+        threshold = 0.9
+        for i in range(len(distinct_tags)):
+            for j in range(i + 1, len(distinct_tags)):
+                sim = float(sim_matrix[i][j])
+                if sim >= threshold:
+                    similar_pairs.append({
+                        "tag_a": distinct_tags[i],
+                        "tag_b": distinct_tags[j],
+                        "similarity": round(sim, 4)
+                    })
+        similar_pairs.sort(key=lambda x: x["similarity"], reverse=True)
+
+        # Step 6: Detect low-quality tags
+        low_quality_tags = [
+            tag for tag in distinct_tags
+            if re.fullmatch(r"(unknown|internal|cluster \d+)", tag.lower())
+        ]
 
         return jsonify({
             "tag_statistics": {
                 "total_tags": len(tags),
                 "distinct_tags": len(distinct_tags),
                 "most_common_tags": tag_counter.most_common(10),
-                "singleton_clusters": singleton_count
+                "singleton_clusters": {
+                    "count": len(singleton_roots),
+                    "examples": singleton_roots[:10]
+                }
             },
-            "tag_similarity_clusters": cluster_infos[:10],  # top 10 groups
+            "tag_similarity_clusters": cluster_infos[:10],  # Top 10 groups
+            "high_similarity_pairs": similar_pairs[:25],     # Top 25 highly similar
             "low_quality_tags": low_quality_tags
         })
 
     except Exception as e:
         logger.error(f"Failed to compute LLM taxonomy metrics: {e}", exc_info=True)
         return jsonify({"error": "Internal server error"}), 500
-
 
 @app.route('/process_reviews/upload', methods=['POST'])
 def process_reviews_upload():
@@ -355,8 +374,6 @@ def _extract_and_aggregate_features(features_per_review):
 
 
 def compute_jaccard_similarity(candidate_a, candidate_b):
-    import numpy as np
-
     def to_sets(clustering):
         return [set(cluster) for cluster in clustering.get("clusters", {}).values()]
 
@@ -499,13 +516,10 @@ def _process_csv_data(csv_data, extractor=None):
 
     except Exception as e:
         logger.error(f"Error in complete pipeline: {str(e)}")
-        import traceback
-        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 
 def convert_numpy_types(obj):
-    import numpy as np
     if isinstance(obj, dict):
         return {str(key) if isinstance(key, np.integer) else key: convert_numpy_types(value) for key, value in
                 obj.items()}
