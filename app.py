@@ -1,3 +1,5 @@
+import re
+from sklearn.metrics.pairwise import cosine_similarity
 import nltk
 import psutil
 import torch
@@ -75,6 +77,84 @@ def health_check():
     status_code = 200 if health_status["status"] == "healthy" else 503
 
     return jsonify(health_status), status_code
+
+@app.route('/llm_taxonomy_metrics', methods=['GET'])
+def llm_taxonomy_metrics():
+    try:
+        from sklearn.metrics.pairwise import cosine_similarity
+        from sklearn.cluster import AgglomerativeClustering
+        from collections import Counter, defaultdict
+        import numpy as np
+        import re
+
+        # Step 1: Fetch LLM tags from Neo4j
+        with neo4j_conn.driver.session(database=neo4j_conn.database) as session:
+            results = session.run("""
+                MATCH (n:MiniTaxonomyNode)
+                WHERE NOT (()-[:HAS_CHILD]->(n)) AND n.llm_tag IS NOT NULL
+                RETURN n.id AS id, n.llm_tag AS tag
+            """)
+            label_data = [(record["id"], record["tag"].strip()) for record in results if record["tag"]]
+
+        if not label_data or len(label_data) < 2:
+            return jsonify({"error": "Not enough labeled mini taxonomies found"}), 400
+
+        label_ids, tags = zip(*label_data)
+        tag_counter = Counter(tags)
+
+        # Step 2: Count singleton clusters
+        with neo4j_conn.driver.session(database=neo4j_conn.database) as session:
+            result = session.run("""
+                MATCH (n:MiniTaxonomyNode)-[:HAS_CHILD]->(c)
+                WITH c.session_id AS sid, count(c) AS size
+                WHERE size = 1
+                RETURN count(*) AS singleton_count
+            """)
+            singleton_count = result.single()["singleton_count"]
+
+        # Step 3: Embed distinct tags
+        distinct_tags = list(set(tags))
+        embeddings = feature_extractor.get_embeddings(distinct_tags)
+        tag_to_index = {tag: i for i, tag in enumerate(distinct_tags)}
+
+        # Step 4: Cluster similar tags
+        sim_matrix = cosine_similarity(embeddings)
+        clustering = AgglomerativeClustering(n_clusters=None, distance_threshold=0.25, affinity='precomputed', linkage='average')
+        clusters = clustering.fit(1 - sim_matrix)
+
+        clustered_tags = defaultdict(list)
+        for idx, cluster_id in enumerate(clusters.labels_):
+            clustered_tags[cluster_id].append(distinct_tags[idx])
+
+        cluster_infos = []
+        for cluster_id, tag_list in clustered_tags.items():
+            cluster_embeddings = [embeddings[tag_to_index[tag]] for tag in tag_list]
+            avg_sim = np.mean(cosine_similarity(cluster_embeddings))
+            cluster_infos.append({
+                "tag_group": tag_list,
+                "avg_similarity": round(float(avg_sim), 4),
+                "count": len(tag_list)
+            })
+
+        cluster_infos.sort(key=lambda x: x["count"], reverse=True)
+
+        # Step 5: Detect low-quality tags
+        low_quality_tags = [tag for tag in distinct_tags if re.fullmatch(r"(Unknown|internal|cluster \d+)", tag.lower())]
+
+        return jsonify({
+            "tag_statistics": {
+                "total_tags": len(tags),
+                "distinct_tags": len(distinct_tags),
+                "most_common_tags": tag_counter.most_common(10),
+                "singleton_clusters": singleton_count
+            },
+            "tag_similarity_clusters": cluster_infos[:10],  # top 10 groups
+            "low_quality_tags": low_quality_tags
+        })
+
+    except Exception as e:
+        logger.error(f"Failed to compute LLM taxonomy metrics: {e}", exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
 
 
 @app.route('/process_reviews/upload', methods=['POST'])
@@ -165,23 +245,15 @@ def save_selected_clustering(app_name):
             return jsonify({"error": "Missing 'clustering' in request body"}), 400
 
         clustering_result = convert_numpy_types(data["clustering"])
-
         clusters = clustering_result.get("clusters", {})
         logger.info(f"Generating semantic labels for {len(clusters)} clusters in '{app_name}'...")
 
-        root_names = {}
-        for cluster_id, features in clusters.items():
-            label = generate_cluster_label(features)
-            root_names[cluster_id] = label
-
-            logger.info(f"LLM Tag for cluster {cluster_id}: '{label}'")
-            logger.info(f" → Features ({len(features)}): {features}")
-            taxonomy_builder.store_llm_taxonomy(app_name, clusters, root_names, method="llm-clustering")
+        labels = taxonomy_builder.store_llm_taxonomy(app_name, clusters, method="llm-clustering")
 
         hierarchy = clustering_result.setdefault("hierarchy", {})
-        for cluster_id in clusters:
+        for cluster_id, label in labels.items():
             hierarchy.setdefault(cluster_id, {})
-            hierarchy[cluster_id]["semantic_label"] = root_names[cluster_id]
+            hierarchy[cluster_id]["semantic_label"] = label
 
         neo4j_conn.create_clustering_result(app_name, clustering_result)
         logger.info(f"Clustering result saved for '{app_name}'.")
@@ -194,8 +266,9 @@ def save_selected_clustering(app_name):
         })
 
     except Exception as e:
-        logger.error(f"Error saving clustering result: {str(e)}")
-        return jsonify({"error": str(e)}), 500
+        logger.error(f"Failed to save clustering for '{app_name}': {e}", exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
 
 
 @app.route('/get_app_subclusters/<app_name>')
@@ -453,97 +526,7 @@ def get_feature_extractor():
     return FeatureExtractor(model_type=model_type)
 
 
-def generate_cluster_label(features):
-    base_url = app.config['OLLAMA_BASE_URL']
-    model = app.config['OLLAMA_MODEL']
 
-    try:
-        logger.info(f"Requesting label from Qwen for cluster with {len(features)} features.")
-        '''
-        NO-SHOT
-        prompt = (
-            "You are an assistant that assigns a single, concise category label to a list of app feature keywords. "
-            "Given the list of features below, respond with only the best possible semantic category name that "
-            "groups them together. Do not explain, just return the name.\n\n"
-            f"Features: {', '.join(features)}\n\n"
-            "Category:"
-        )
-        '''
-
-        '''
-        Few-SHOT
-        prompt = (
-            "You are an assistant that assigns a single, concise semantic category name to a list of app feature keywords.\n"
-            "Given a set of related feature phrases, return only the best possible category name that groups them together.\n"
-            "Be concise (1–4 words). Do not explain. Do not include quotes or punctuation.\n\n"
-            "Examples:\n"
-            "Features: send message, chat group, reply dm → Messaging\n"
-            "Features: log in, password reset, cannot login → Account Access\n"
-            "Features: freeze screen, crash often, app bug → App Stability\n"
-            "Features: too many ads, ad popup, skip ad → Advertisements\n"
-            "Features: battery drain, overheat, fast battery use → Battery Usage\n"
-            "Features: share file, upload media, download image → File Sharing\n"
-            "Features: update notification, patch note, changelog info → App Updates\n"
-            "Features: clear cache, reinstall app, restart phone → Troubleshooting\n"
-            "Features: UI clutter, confusing layout, bad navigation → User Interface\n"
-            "Features: support email, contact dev, report issue → Customer Support\n\n"
-            f"Features: {', '.join(features)}\n"
-            "Category:"
-        )
-
-        '''
-
-        prompt = (
-            "You are an assistant that assigns a single, concise semantic category name to a list of app feature keywords.\n"
-            "Given a set of related feature phrases, return only the best possible category name that groups them together.\n"
-            "Be concise (1–4 words). Do not explain. Do not include quotes or punctuation.\n\n"
-            "Examples:\n"
-            "Features: send message, chat group, reply dm → Messaging\n"
-            "Features: log in, password reset, cannot login → Account Access\n"
-            "Features: freeze screen, crash often, app bug → App Stability\n"
-            "Features: too many ads, ad popup, skip ad → Advertisements\n"
-            "Features: battery drain, overheat, fast battery use → Battery Usage\n"
-            "Features: share file, upload media, download image → File Sharing\n"
-            "Features: update notification, patch note, changelog info → App Updates\n"
-            "Features: clear cache, reinstall app, restart phone → Troubleshooting\n"
-            "Features: UI clutter, confusing layout, bad navigation → User Interface\n"
-            "Features: support email, contact dev, report issue → Customer Support\n\n"
-            f"Features: {', '.join(features)}\n"
-            "Category:"
-        )
-        response = requests.post(
-            f"{base_url}/api/chat",
-            json={
-                "model": model,
-                "messages": [{"role": "user", "content": prompt}]
-            },
-            stream=True,
-            timeout=30
-        )
-
-        if response.status_code != 200:
-            logger.warning(f"Ollama returned status {response.status_code} for model '{model}'")
-            return "Unknown"
-
-        full_content = ""
-        for line in response.iter_lines(decode_unicode=True):
-            if not line.strip():
-                continue
-            try:
-                msg = json.loads(line)
-                chunk = msg.get("message", {}).get("content", "")
-                full_content += chunk
-            except Exception as e:
-                logger.warning(f"Skipping malformed line from Ollama: {e}")
-
-        label = full_content.strip() or "Unknown"
-        logger.info(f"Generated label: '{label}' for cluster with features: {features[:3]}...")
-
-        return label
-
-    except Exception as e:
-        logger.error(f"Error generating label with Qwen: {str(e)}")
-        return "Unknown"
 
 
 if __name__ == '__main__':
