@@ -3,14 +3,13 @@ import os
 
 class Config:
     # Flask Configuration
-    SECRET_KEY = os.environ.get('SECRET_KEY') or 'your-secret-key-here'
     DEBUG = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
 
     # Neo4j Configuration
     NEO4J_URI = os.environ.get('NEO4J_URI', 'bolt://localhost:7687')
     NEO4J_USER = os.environ.get('NEO4J_USER', 'neo4j')
     NEO4J_PASSWORD = os.environ.get('NEO4J_PASSWORD', '12345678')
-    NEO4J_DATABASE = os.environ.get('NEO4J_DATABASE', 'test2')
+    NEO4J_DATABASE = os.environ.get('NEO4J_DATABASE', 'transfeatex')
 
     # Models Configuration
     TFREX_MODEL = 'quim-motger/t-frex-bert-base-uncased'
