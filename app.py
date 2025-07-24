@@ -267,16 +267,9 @@ def save_selected_clustering(app_name):
         clusters = clustering_result.get("clusters", {})
         logger.info(f"Generating semantic labels for {len(clusters)} clusters in '{app_name}'...")
 
-        labels = taxonomy_builder.store_llm_taxonomy(app_name, clusters, method="llm-clustering")
+        taxonomy_builder.store_llm_taxonomy(app_name, clusters, method="llm-clustering")
 
-        hierarchy = clustering_result.setdefault("hierarchy", {})
-        for cluster_id, label in labels.items():
-            hierarchy.setdefault(cluster_id, {})
-            hierarchy[cluster_id]["semantic_label"] = label
-
-        neo4j_conn.create_clustering_result(app_name, clustering_result)
         logger.info(f"Clustering result saved for '{app_name}'.")
-
         return jsonify({
             "status": "success",
             "message": f"Clustering saved for app '{app_name}'",
