@@ -241,6 +241,10 @@ class TaxonomyBuilder:
             return build_subtree(tree)
 
         for cluster_id, features in clusters.items():
+            if len(features) == 1:
+                logger.info(f"Skipping cluster {cluster_id} with only one feature: {features[0]}")
+                continue
+
             label = generate_cluster_label(features)
             labels[cluster_id] = label
             try:
