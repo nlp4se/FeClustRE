@@ -7,6 +7,10 @@ import logging
 import re
 import requests
 import json
+from datetime import datetime
+from scipy.cluster.hierarchy import linkage, to_tree
+from scipy.spatial.distance import pdist
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -186,10 +190,7 @@ class TaxonomyBuilder:
         }
 
     def store_llm_taxonomy(self, app_name, clusters, method="llm-clustering"):
-        from datetime import datetime
-        from scipy.cluster.hierarchy import linkage, to_tree
-        from scipy.spatial.distance import pdist
-        import uuid
+
 
         session_id = f"{app_name}_llm_clusters_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         node_counter = [0]
