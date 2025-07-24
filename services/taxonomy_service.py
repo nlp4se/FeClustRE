@@ -279,17 +279,51 @@ def generate_cluster_label(features, mode="few-shot", base_url=None, model=None)
                 f"Features: {', '.join(features)}\n\n"
                 "Category:"
             )
+
         elif mode == "few-shot":
             prompt = (
                 "You are an assistant that assigns a single, concise category name to a list of app feature keywords.\n"
                 "Your response must be only the category name. No explanations. No punctuation. No labels like 'Usage' or 'Explanation'.\n"
                 "Return only the category name — a short phrase (1 to 4 words).\n\n"
                 "Examples:\n"
-                "Features: send message, chat group, reply dm\nCategory: Messaging\n\n"
-                "Features: log in, password reset, cannot login\nCategory: Account Access\n\n"
-                "Features: freeze screen, crash often, app bug\nCategory: App Stability\n\n"
-                "Features: battery drain, overheat, fast battery use\nCategory: Battery Usage\n\n"
-                "Features: share file, upload media, download image\nCategory: File Sharing\n\n"
+                # ChatGPT
+                "Features: generate original images, transform existing images\nCategory: Image generation\n\n"
+                "Features: real-time convo, practice a new language, settle a debate\nCategory: Advanced voice mode\n\n"
+                "Features: snap a picture, upload a picture, transcribe handwritten recipe, get info about a landmark\nCategory: Photo upload\n\n"
+                "Features: find custom birthday gift ideas, create personalized greeting card\nCategory: Creative inspiration\n\n"
+                "Features: talk, ask for a detailed travel itinerary, get help crafting response\nCategory: Tailored advice\n\n"
+                "Features: brainstorm marketing copy, map out a business plan\nCategory: Professional input\n\n"
+                "Features: get recipe suggestions\nCategory: Instant answers\n\n"
+                # Copilot
+                "Features: summarized answers, translate, proofread across multiple languages, optimizing text, compose and draft emails, compose and draft cover letters, update your resume\nCategory: Smart work\n\n"
+                "Features: compose stories, compose scripts, image generation, create high quality visuals, render your concepts into stunning visuals, spark inspiration\nCategory: Personal support\n\n"
+                "Features: search by image, explore and develop new styles and ideas, create illustrations, curate social media content, visualize film and video storyboards, build and update a portfolio\nCategory: Image generation\n\n"
+                # Mistral
+                "Features: lightning fast search across the web, real-time news\nCategory: Instant answers\n\n"
+                "Features: document OCR with multilanguage support, multilanguage reasoning capabilities, voice recognition\nCategory: Multimodal understanding\n\n"
+                "Features: deep research, advanced reasoning for complex tasks\nCategory: Research and reasoning\n\n"
+                "Features: organization of data, documents, and notes into personalized Projects\nCategory: Productivity and organization\n\n"
+                "Features: image generation, contextual iteration\nCategory: Image generation\n\n"
+                # Perplexity
+                "Features: guided AI search for deeper exploration\nCategory: Perplexity Pro Search\n\n"
+                "Features: keep the conversation going for a deeper understanding\nCategory: Thread Follow-Up\n\n"
+                "Features: instant, up-to-date answers\nCategory: Voice\n\n"
+                "Features: cited sources for every answer\nCategory: Trust and credibility\n\n"
+                "Features: learn new things from the community\nCategory: Discover\n\n"
+                "Features: curation of your discoveries\nCategory: Your Library\n\n"
+                # Anthropic
+                "Features: draft a business proposal, translate menus, brainstorm gift ideas, compose a speech\nCategory: On-the-go assistance\n\n"
+                "Features: start a chat, attach a file, send a photo for real-time image analysis\nCategory: Instant answers\n\n"
+                "Features: step-by-step thinking, break down complex problems, consider multiple solutions\nCategory: Extended thinking\n\n"
+                "Features: collaborate on critical tasks, brainstorming, complex problems, continue conversations across devices\nCategory: Faster deep work\n\n"
+                "Features: draft emails, summarize meetings, assist with small tasks\nCategory: Productivity support\n\n"
+                "Features: advanced coding, advanced reasoning, AI agents\nCategory: Intelligence\n\n"
+                # Gemini
+                "Features: get help with writing, brainstorming, learning\nCategory: Creative and educational support\n\n"
+                "Features: summarise and find quick info from Gmail or Google Drive\nCategory: Productivity and information retrieval\n\n"
+                "Features: use text, voice, photos, and your camera to get help\nCategory: Multimodal assistance\n\n"
+                "Features: ask for help with what’s on your phone screen using 'Hey Google'\nCategory: Context-aware interaction\n\n"
+                "Features: make plans with Google Maps and Google Flights\nCategory: Planning and navigation\n\n"
                 f"Features: {', '.join(features)}\nCategory:"
             )
         else:
@@ -334,3 +368,4 @@ def generate_cluster_label(features, mode="few-shot", base_url=None, model=None)
     except Exception as e:
         logger.error(f"Error generating label with Qwen: {str(e)}")
         return "Unknown"
+
