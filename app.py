@@ -79,103 +79,331 @@ def health_check():
 
     return jsonify(health_status), status_code
 
+
 @app.route('/llm_taxonomy_metrics', methods=['GET'])
 def llm_taxonomy_metrics():
     try:
-        # Step 1: Fetch LLM tags from Neo4j
+        # Step 1: Fetch comprehensive taxonomy data
         with neo4j_conn.driver.session(database=neo4j_conn.database) as session:
-            results = session.run("""
-                MATCH (n:MiniTaxonomyNode)
-                WHERE NOT (()-[:HAS_CHILD]->(n)) AND n.llm_tag IS NOT NULL
-                RETURN n.id AS id, n.llm_tag AS tag
+            root_results = session.run("""
+                MATCH (root:MiniTaxonomyNode)
+                WHERE NOT (()-[:HAS_CHILD]->(root)) AND root.llm_tag IS NOT NULL
+                RETURN root.id AS root_id, 
+                       root.llm_tag AS tag, 
+                       root.session_id AS session_id
             """)
-            label_data = [(record["id"], record["tag"].strip()) for record in results if record["tag"]]
+            root_data = [(r["root_id"], r["tag"].strip(), r["session_id"]) for r in root_results if r["tag"]]
 
-        if not label_data or len(label_data) < 2:
+            structure_results = session.run("""
+                MATCH (root:MiniTaxonomyNode)
+                WHERE NOT (()-[:HAS_CHILD]->(root)) AND root.llm_tag IS NOT NULL
+                OPTIONAL MATCH path = (root)-[:HAS_CHILD*]->(leaf)
+                WHERE NOT (leaf)-[:HAS_CHILD]->()
+                WITH root, 
+                     max(length(path)) as max_depth,
+                     count(DISTINCT leaf) as leaf_count,
+                     collect(DISTINCT leaf.feature) as leaf_features
+                RETURN root.id AS root_id,
+                       root.llm_tag AS tag,
+                       COALESCE(max_depth, 0) AS depth,
+                       COALESCE(leaf_count, 0) AS leaves,
+                       leaf_features
+            """)
+            structure_data = {
+                r["root_id"]: {
+                    "tag": r["tag"],
+                    "depth": r["depth"],
+                    "leaves": r["leaves"],
+                    "leaf_features": r["leaf_features"]
+                }
+                for r in structure_results
+            }
+
+        if not root_data or len(root_data) < 2:
             return jsonify({"error": "Not enough labeled mini taxonomies found"}), 400
 
-        label_ids, tags = zip(*label_data)
+        root_ids, tags, session_ids = zip(*root_data)
+
+        # Step 2: Basic statistics and quality analysis
         tag_counter = Counter(tags)
+        session_counter = Counter(session_ids)
 
-        # Step 2: Detect singleton clusters (root with only one child)
-        with neo4j_conn.driver.session(database=neo4j_conn.database) as session:
-            singleton_result = session.run("""
-                MATCH (root:MiniTaxonomyNode)-[:HAS_CHILD]->(child)
-                WITH root, count(child) AS child_count
-                WHERE child_count = 1
-                RETURN root.id AS root_id
-            """)
-            singleton_roots = [r["root_id"] for r in singleton_result]
+        duplicate_tags = {tag: count for tag, count in tag_counter.items() if count > 1}
 
-        # Step 3: Embed distinct tags
-        distinct_tags = list(set(tags))
-        embeddings = feature_extractor.get_embeddings(distinct_tags)
-        tag_to_index = {tag: i for i, tag in enumerate(distinct_tags)}
-
-        # Step 4: Cluster similar tags
-        sim_matrix = cosine_similarity(embeddings)
-        clustering = AgglomerativeClustering(
-            n_clusters=None,
-            distance_threshold=0.25,
-            affinity='precomputed',
-            linkage='average'
-        )
-        clusters = clustering.fit(1 - sim_matrix)
-
-        clustered_tags = defaultdict(list)
-        for idx, cluster_id in enumerate(clusters.labels_):
-            clustered_tags[cluster_id].append(distinct_tags[idx])
-
-        cluster_infos = []
-        for cluster_id, tag_list in clustered_tags.items():
-            cluster_embeddings = [embeddings[tag_to_index[tag]] for tag in tag_list]
-            avg_sim = np.mean(cosine_similarity(cluster_embeddings))
-            cluster_infos.append({
-                "tag_group": tag_list,
-                "avg_similarity": round(float(avg_sim), 4),
-                "count": len(tag_list)
-            })
-        cluster_infos.sort(key=lambda x: x["count"], reverse=True)
-
-        # Step 5: High similarity tag pairs (e.g., for merging)
-        similar_pairs = []
-        threshold = 0.9
-        for i in range(len(distinct_tags)):
-            for j in range(i + 1, len(distinct_tags)):
-                sim = float(sim_matrix[i][j])
-                if sim >= threshold:
-                    similar_pairs.append({
-                        "tag_a": distinct_tags[i],
-                        "tag_b": distinct_tags[j],
-                        "similarity": round(sim, 4)
-                    })
-        similar_pairs.sort(key=lambda x: x["similarity"], reverse=True)
-
-        # Step 6: Detect low-quality tags
-        low_quality_tags = [
-            tag for tag in distinct_tags
-            if re.fullmatch(r"(unknown|internal|cluster \d+)", tag.lower())
+        low_quality_patterns = [
+            r"unknown",
+            r"internal",
+            r"cluster \d+",
+            r"category \d+",
+            r"group \d+"
         ]
 
-        return jsonify({
-            "tag_statistics": {
-                "total_tags": len(tags),
-                "distinct_tags": len(distinct_tags),
-                "most_common_tags": tag_counter.most_common(10),
-                "singleton_clusters": {
-                    "count": len(singleton_roots),
-                    "examples": singleton_roots[:10]
+        low_quality_tags = []
+        for tag in set(tags):
+            for pattern in low_quality_patterns:
+                if re.fullmatch(pattern, tag.lower()):
+                    low_quality_tags.append({
+                        "tag": tag,
+                        "pattern": pattern,
+                        "count": tag_counter[tag]
+                    })
+                    break
+
+        structure_metrics = {
+            "depth_distribution": {},
+            "leaf_count_distribution": {},
+            "singleton_taxonomies": [],
+            "large_taxonomies": [],
+            "empty_taxonomies": []
+        }
+
+        depths = []
+        leaf_counts = []
+
+        for root_id in root_ids:
+            if root_id in structure_data:
+                depth = structure_data[root_id]["depth"]
+                leaves = structure_data[root_id]["leaves"]
+                tag = structure_data[root_id]["tag"]
+
+                depths.append(depth)
+                leaf_counts.append(leaves)
+
+                if leaves <= 1:
+                    structure_metrics["singleton_taxonomies"].append({
+                        "root_id": root_id,
+                        "tag": tag,
+                        "leaves": leaves
+                    })
+                elif leaves >= 10:
+                    structure_metrics["large_taxonomies"].append({
+                        "root_id": root_id,
+                        "tag": tag,
+                        "leaves": leaves,
+                        "depth": depth
+                    })
+                elif leaves == 0:
+                    structure_metrics["empty_taxonomies"].append({
+                        "root_id": root_id,
+                        "tag": tag
+                    })
+
+        depth_counter = Counter(depths)
+        leaf_counter = Counter(leaf_counts)
+
+        structure_metrics["depth_distribution"] = dict(depth_counter.most_common())
+        structure_metrics["leaf_count_distribution"] = dict(leaf_counter.most_common())
+        structure_metrics["avg_depth"] = round(np.mean(depths), 2) if depths else 0
+        structure_metrics["avg_leaves"] = round(np.mean(leaf_counts), 2) if leaf_counts else 0
+
+        distinct_tags = list(set(tags))
+        if len(distinct_tags) >= 2:
+            embeddings = feature_extractor.get_embeddings(distinct_tags)
+            tag_to_index = {tag: i for i, tag in enumerate(distinct_tags)}
+            sim_matrix = cosine_similarity(embeddings)
+
+            # Cluster similar tags with multiple thresholds
+            similarity_analysis = {}
+            thresholds = [0.7, 0.8, 0.9]
+
+            for threshold in thresholds:
+                clustering = AgglomerativeClustering(
+                    n_clusters=None,
+                    distance_threshold=1 - threshold,
+                    affinity='precomputed',
+                    linkage='average'
+                )
+                clusters = clustering.fit(1 - sim_matrix)
+
+                clustered_tags = defaultdict(list)
+                for idx, cluster_id in enumerate(clusters.labels_):
+                    clustered_tags[cluster_id].append(distinct_tags[idx])
+
+                meaningful_groups = [
+                    {
+                        "tags": tag_list,
+                        "count": len(tag_list),
+                        "avg_similarity": round(float(np.mean([
+                            sim_matrix[tag_to_index[tag1]][tag_to_index[tag2]]
+                            for i, tag1 in enumerate(tag_list)
+                            for j, tag2 in enumerate(tag_list)
+                            if i < j
+                        ])), 4) if len(tag_list) > 1 else 1.0
+                    }
+                    for tag_list in clustered_tags.values()
+                    if len(tag_list) > 1
+                ]
+                meaningful_groups.sort(key=lambda x: x["count"], reverse=True)
+
+                similarity_analysis[f"threshold_{int(threshold * 100)}"] = {
+                    "groups": meaningful_groups[:10],
+                    "total_groups": len(meaningful_groups),
+                    "tags_in_groups": sum(g["count"] for g in meaningful_groups),
+                    "singleton_tags": len(distinct_tags) - sum(g["count"] for g in meaningful_groups)
                 }
+
+            similar_pairs = []
+            merge_threshold = 0.85
+            for i in range(len(distinct_tags)):
+                for j in range(i + 1, len(distinct_tags)):
+                    sim = float(sim_matrix[i][j])
+                    if sim >= merge_threshold:
+                        tag_a, tag_b = distinct_tags[i], distinct_tags[j]
+                        similar_pairs.append({
+                            "tag_a": tag_a,
+                            "tag_b": tag_b,
+                            "similarity": round(sim, 4),
+                            "count_a": tag_counter[tag_a],
+                            "count_b": tag_counter[tag_b],
+                            "merge_candidate": sim >= 0.9
+                        })
+            similar_pairs.sort(key=lambda x: x["similarity"], reverse=True)
+
+        else:
+            similarity_analysis = {}
+            similar_pairs = []
+
+        content_analysis = analyze_taxonomy_content_quality(structure_data)
+
+        session_analysis = {}
+        if len(session_counter) > 1:
+            for session_id, count in session_counter.most_common():
+                session_tags = [tag for _, tag, sid in root_data if sid == session_id]
+                session_analysis[session_id] = {
+                    "taxonomy_count": count,
+                    "unique_tags": len(set(session_tags)),
+                    "duplicate_tags": len(session_tags) - len(set(session_tags)),
+                    "top_tags": Counter(session_tags).most_common(5)
+                }
+
+        return jsonify({
+            "overview": {
+                "total_taxonomies": len(tags),
+                "distinct_tags": len(distinct_tags),
+                "duplicate_tags": len(duplicate_tags),
+                "low_quality_count": len(low_quality_tags),
+                "sessions": len(session_counter)
             },
-            "tag_similarity_clusters": cluster_infos[:10],  # Top 10 groups
-            "high_similarity_pairs": similar_pairs[:25],     # Top 25 highly similar
-            "low_quality_tags": low_quality_tags
+            "tag_statistics": {
+                "most_common_tags": tag_counter.most_common(15),
+                "duplicate_tags": duplicate_tags,
+                "low_quality_tags": low_quality_tags
+            },
+            "structure_analysis": structure_metrics,
+            "similarity_analysis": similarity_analysis,
+            "merge_candidates": similar_pairs[:20],
+            "content_quality": content_analysis,
+            "session_breakdown": dict(list(session_analysis.items())[:5]),
         })
 
     except Exception as e:
         logger.error(f"Failed to compute LLM taxonomy metrics: {e}", exc_info=True)
         return jsonify({"error": "Internal server error"}), 500
 
+
+def analyze_taxonomy_content_quality(structure_data):
+    content_metrics = {
+        "feature_overlap": [],
+        "semantic_coherence": [],
+        "naming_patterns": {}
+    }
+
+    # Analyze feature overlap between taxonomies
+    all_features = []
+    taxonomy_features = {}
+
+    for root_id, data in structure_data.items():
+        features = data.get("leaf_features", [])
+        if features:
+            taxonomy_features[data["tag"]] = set(features)
+            all_features.extend(features)
+
+    # Find overlapping features
+    feature_counter = Counter(all_features)
+    overlapping_features = {feat: count for feat, count in feature_counter.items() if count > 1}
+
+    if overlapping_features:
+        content_metrics["feature_overlap"] = [
+            {
+                "feature": feat,
+                "appears_in_taxonomies": count,
+                "taxonomies": [tag for tag, features in taxonomy_features.items() if feat in features]
+            }
+            for feat, count in Counter(overlapping_features).most_common(10)
+        ]
+
+    # Analyze naming patterns
+    tag_words = []
+    for data in structure_data.values():
+        tag_words.extend(data["tag"].lower().split())
+
+    word_counter = Counter(tag_words)
+    content_metrics["naming_patterns"] = {
+        "most_common_words": word_counter.most_common(10),
+        "unique_words": len(set(tag_words)),
+        "total_words": len(tag_words)
+    }
+
+    return content_metrics
+
+
+def generate_taxonomy_recommendations(duplicate_tags, low_quality_tags, similar_pairs,
+                                      structure_metrics, content_analysis):
+    recommendations = []
+
+    # Duplicate tag recommendations
+    if duplicate_tags:
+        recommendations.append({
+            "type": "duplicates",
+            "priority": "high",
+            "message": f"Found {len(duplicate_tags)} duplicate tags that should be merged or renamed",
+            "action": "Review duplicate tags and either merge taxonomies or improve label generation",
+            "examples": list(duplicate_tags.keys())[:5]
+        })
+
+    # Low quality tag recommendations
+    if low_quality_tags:
+        recommendations.append({
+            "type": "quality",
+            "priority": "medium",
+            "message": f"Found {len(low_quality_tags)} low-quality generic tags",
+            "action": "Improve label generation to create more specific, distinctive labels",
+            "examples": [tag["tag"] for tag in low_quality_tags[:5]]
+        })
+
+    # Similarity-based merge recommendations
+    high_similarity_pairs = [p for p in similar_pairs if p["similarity"] >= 0.9]
+    if high_similarity_pairs:
+        recommendations.append({
+            "type": "merging",
+            "priority": "medium",
+            "message": f"Found {len(high_similarity_pairs)} pairs with >90% similarity that could be merged",
+            "action": "Consider merging highly similar taxonomies",
+            "examples": [f"'{p['tag_a']}' ↔ '{p['tag_b']}' ({p['similarity']})"
+                         for p in high_similarity_pairs[:3]]
+        })
+
+    # Structure recommendations
+    singleton_count = len(structure_metrics.get("singleton_taxonomies", []))
+    if singleton_count > len(structure_metrics.get("large_taxonomies", [])) * 3:
+        recommendations.append({
+            "type": "structure",
+            "priority": "low",
+            "message": f"High ratio of singleton taxonomies ({singleton_count}) suggests over-segmentation",
+            "action": "Consider adjusting clustering parameters to create larger, more meaningful groups"
+        })
+
+    # Content overlap recommendations
+    overlap_features = content_analysis.get("feature_overlap", [])
+    if len(overlap_features) > 10:
+        recommendations.append({
+            "type": "content",
+            "priority": "medium",
+            "message": f"High feature overlap ({len(overlap_features)} features) between taxonomies",
+            "action": "Review clustering logic - features appearing in multiple taxonomies may indicate poor separation"
+        })
+
+    return recommendations
 @app.route('/process_reviews/upload', methods=['POST'])
 def process_reviews_upload():
     try:
@@ -195,63 +423,6 @@ def process_reviews_upload():
 
     except Exception as e:
         logger.error(f"Error processing uploaded file: {str(e)}")
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route('/get_app_clustering/<app_name>')
-def get_app_clustering(app_name):
-    try:
-        clustering = neo4j_conn.get_app_clustering(app_name)
-        if not clustering:
-            return jsonify({"error": "No clustering results found for this app"}), 404
-        return jsonify({"app_name": app_name, "clustering": clustering})
-    except Exception as e:
-        logger.error(f"Error getting clustering data: {str(e)}")
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route('/get_app_data/<app_name>')
-def get_app_data(app_name):
-    try:
-        reviews = neo4j_conn.get_app_reviews(app_name)
-        features = neo4j_conn.get_app_features(app_name)
-        return jsonify({"app_name": app_name, "reviews": reviews, "features": features})
-    except Exception as e:
-        logger.error(f"Error getting app data: {str(e)}")
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route('/cluster_features/<app_name>')
-def cluster_features(app_name):
-    try:
-        height_threshold = float(request.args.get('height_threshold', 0.5))
-        sibling_threshold = float(request.args.get('sibling_threshold', 0.3))
-        features_data = neo4j_conn.get_app_features(app_name)
-
-        if not features_data:
-            return jsonify({"error": "No features found for this app"}), 404
-
-        all_features = [f['feature_name'] for f in features_data if 'feature_name' in f]
-        unique_features = list(set(all_features))
-
-        if len(unique_features) < 2:
-            return jsonify({"error": "Not enough features for clustering"}), 400
-
-        embeddings = feature_extractor.get_embeddings(unique_features)
-        clusterer.height_threshold = height_threshold
-        clusterer.sibling_threshold = sibling_threshold
-        clustering_result = clusterer.perform_clustering(unique_features, embeddings)
-
-        return jsonify({
-            "app_name": app_name,
-            "clustering_result": clustering_result,
-            "parameters": {
-                "height_threshold": height_threshold,
-                "sibling_threshold": sibling_threshold
-            }
-        })
-    except Exception as e:
-        logger.error(f"Error clustering features: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -280,22 +451,6 @@ def save_selected_clustering(app_name):
     except Exception as e:
         logger.error(f"Failed to save clustering for '{app_name}': {e}", exc_info=True)
         return jsonify({"error": "Internal server error"}), 500
-
-
-
-@app.route('/get_app_subclusters/<app_name>')
-def get_app_subclusters(app_name):
-    try:
-        with neo4j_conn.driver.session(database=neo4j_conn.database) as session:
-            result = session.run("""
-                MATCH (a:App {name: $app_name})-[:HAS_SUBCLUSTER]->(sc:Subcluster)
-                RETURN sc.cluster_id AS cluster_id, sc.features AS features, sc.session_id AS session_id
-                ORDER BY sc.cluster_id
-            """, app_name=app_name)
-            return jsonify([record.data() for record in result])
-    except Exception as e:
-        logger.error(f"Error fetching subclusters: {str(e)}")
-        return jsonify({"error": str(e)}), 500
 
 
 def _parse_csv_data(csv_data):
