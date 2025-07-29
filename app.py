@@ -404,6 +404,8 @@ def generate_taxonomy_recommendations(duplicate_tags, low_quality_tags, similar_
         })
 
     return recommendations
+
+
 @app.route('/process_reviews/upload', methods=['POST'])
 def process_reviews_upload():
     try:
@@ -438,14 +440,17 @@ def save_selected_clustering(app_name):
         clusters = clustering_result.get("clusters", {})
         logger.info(f"Generating semantic labels for {len(clusters)} clusters in '{app_name}'...")
 
-        taxonomy_builder.store_llm_taxonomy(app_name, clusters, method="llm-clustering")
+        labels = taxonomy_builder.store_llm_taxonomy(app_name, clusters, method="llm-clustering")
+
+        merge_results = taxonomy_builder.merge_mini_taxonomies(app_name)
 
         logger.info(f"Clustering result saved for '{app_name}'.")
         return jsonify({
             "status": "success",
             "message": f"Clustering saved for app '{app_name}'",
             "n_clusters": clustering_result.get("n_clusters"),
-            "metrics": clustering_result.get("metrics")
+            "metrics": clustering_result.get("metrics"),
+            "merge_results": merge_results
         })
 
     except Exception as e:
@@ -686,9 +691,6 @@ def convert_numpy_types(obj):
 def get_feature_extractor():
     model_type = request.args.get("model_type", "tfrex").lower()
     return FeatureExtractor(model_type=model_type)
-
-
-
 
 
 if __name__ == '__main__':
