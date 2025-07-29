@@ -25,6 +25,84 @@ class TaxonomyBuilder:
         self.feature_extractor = feature_extractor
         self.height_threshold = height_threshold
 
+    def merge_mini_taxonomies(self, app_name):
+        try:
+            with self.neo4j_conn.driver.session(database=self.neo4j_conn.database) as session:
+                result = session.run("""
+                    MATCH (app:App {name: $app_name})-[:HAS_MINI_TAXONOMY]->(root:MiniTaxonomyNode)
+                    OPTIONAL MATCH (root)-[:HAS_CHILD*]->(leaf)
+                    WHERE NOT (leaf)-[:HAS_CHILD]->()
+                    RETURN root.id as root_id, 
+                           root.llm_tag as label,
+                           count(DISTINCT leaf) as leaf_count,
+                           collect(DISTINCT leaf.feature) as leaf_features
+                """, app_name=app_name)
+
+                taxonomies = [
+                    {
+                        'root_id': record['root_id'],
+                        'label': record['label'].strip() if record['label'] else '',
+                        'leaf_count': record['leaf_count'] or 0,
+                        'leaf_features': record['leaf_features'] or []
+                    }
+                    for record in result
+                ]
+
+            if len(taxonomies) < 2:
+                return {"merged_count": 0, "merges": []}
+
+            labels = [tax['label'] for tax in taxonomies]
+            embeddings = self.feature_extractor.get_embeddings(labels)
+            similarity_matrix = cosine_similarity(embeddings)
+
+            merges = []
+            merged_ids = set()
+
+            for i in range(len(taxonomies)):
+                for j in range(i + 1, len(taxonomies)):
+                    if taxonomies[i]['root_id'] in merged_ids or taxonomies[j]['root_id'] in merged_ids:
+                        continue
+
+                    similarity = float(similarity_matrix[i][j])
+
+                    if similarity >= 0.85:
+                        tax_a, tax_b = taxonomies[i], taxonomies[j]
+
+                        if tax_a['leaf_count'] >= tax_b['leaf_count']:
+                            primary, secondary = tax_a, tax_b
+                        else:
+                            primary, secondary = tax_b, tax_a
+
+                        with self.neo4j_conn.driver.session(database=self.neo4j_conn.database) as session:
+                            session.write_transaction(lambda tx: tx.run("""
+                                MATCH (r:MiniTaxonomyNode {id: $secondary_id})
+                                OPTIONAL MATCH (r)-[:HAS_CHILD]->(c)
+                                OPTIONAL MATCH (a:App)-[rel:HAS_MINI_TAXONOMY]->(r)
+                                DELETE rel
+                                WITH c, r
+                                MATCH (p:MiniTaxonomyNode {id: $primary_id})
+                                FOREACH (_ IN CASE WHEN c IS NOT NULL THEN [1] ELSE [] END |
+                                    MERGE (p)-[:HAS_CHILD]->(c)
+                                )
+                                DETACH DELETE r
+                            """, secondary_id=secondary['root_id'], primary_id=primary['root_id']))
+
+                        merges.append({
+                            'merged_taxonomies': [secondary['label']],
+                            'into_taxonomy': primary['label'],
+                            'similarity': round(similarity, 4)
+                        })
+                        merged_ids.add(secondary['root_id'])
+
+            return {
+                "merged_count": len(merges),
+                "merges": merges
+            }
+
+        except Exception as e:
+            logger.error(f"Mini taxonomy merge failed for '{app_name}': {e}", exc_info=True)
+            return {"merged_count": 0, "merges": [], "error": str(e)}
+
     def build_and_store_taxonomy(self, app_name, features, embeddings, method="bert"):
         if len(features) < 2:
             logger.warning("Not enough features to build taxonomy.")
@@ -249,7 +327,6 @@ class TaxonomyBuilder:
                 logger.info(f"Skipping cluster {cluster_id} with only one feature: {features[0]}")
                 continue
 
-            # generate and normalize label to lower-case
             raw_label = generate_cluster_label(features)
             label = raw_label.strip().lower()
             labels[cluster_id] = label
@@ -257,7 +334,6 @@ class TaxonomyBuilder:
                 subtree = _extract_tree(features)
                 root_id = f"mini_taxonomy_root_{uuid.uuid4().hex[:8]}"
                 with self.neo4j_conn.driver.session(database=self.neo4j_conn.database) as session:
-                    # use normalized label for llm_tag
                     session.write_transaction(_create_node, root_id, label, False, session_id, label)
                     session.write_transaction(
                         lambda tx: tx.run("""
@@ -269,74 +345,9 @@ class TaxonomyBuilder:
             except Exception as e:
                 logger.error(f"Failed to store LLM taxonomy for cluster {cluster_id}: {e}", exc_info=True)
 
-        try:
-            logger.info("Starting mini taxonomy merge based on leaf feature similarity.")
-            with self.neo4j_conn.driver.session(database=self.neo4j_conn.database) as session:
-                rd = session.run("""
-                    MATCH (r:MiniTaxonomyNode)
-                    WHERE NOT (()-[:HAS_CHILD]->(r))
-                      AND r.llm_tag IS NOT NULL
-                      AND r.session_id = $session_id
-                    RETURN r.id AS root_id, r.llm_tag AS label
-                """, session_id=session_id)
-                roots = [(r["root_id"], r["label"]) for r in rd]
-
-            if len(roots) < 2:
-                logger.info(f"Not enough mini taxonomies ({len(roots)}) to compare for merging.")
-                return labels
-
-            content_bags, valid = [], []
-            for root_id, root_label in roots:
-                with self.neo4j_conn.driver.session(database=self.neo4j_conn.database) as session:
-                    lq = session.run("""
-                        MATCH (r:MiniTaxonomyNode {id: $root_id})-[:HAS_CHILD*]->(leaf)
-                        WHERE NOT (leaf)-[:HAS_CHILD]->()
-                        RETURN DISTINCT leaf.feature AS feature
-                    """, root_id=root_id)
-                    leaf_feats = [row["feature"] for row in lq if row["feature"]]
-                if len(leaf_feats) < 2:
-                    continue
-                # content_bag uses already lower-cased llm_tag
-                content_bag = f"{root_label} {root_label} {root_label} " + " ".join(sorted(leaf_feats))
-                content_bags.append(content_bag)
-                valid.append((root_id, root_label, leaf_feats))
-
-            embs = self.feature_extractor.get_embeddings(content_bags)
-            sim = cosine_similarity(embs)
-            dist = 1 - sim
-            from sklearn.cluster import AgglomerativeClustering
-            clustering = AgglomerativeClustering(
-                n_clusters=None, distance_threshold=0.2,
-                metric='precomputed', linkage='average')
-            grp_labels = clustering.fit(dist).labels_
-
-            groups = {}
-            for idx, grp in enumerate(grp_labels):
-                groups.setdefault(grp, []).append(valid[idx])
-            for items in groups.values():
-                if len(items) < 2:
-                    continue
-                primary_id = items[0][0]
-                to_merge = [rid for rid, _, _ in items[1:]]
-                with self.neo4j_conn.driver.session(database=self.neo4j_conn.database) as session:
-                    for node_id in to_merge:
-                        session.write_transaction(
-                            lambda tx: tx.run("""
-                                MATCH (r:MiniTaxonomyNode {id: $node_id})
-                                OPTIONAL MATCH (r)-[:HAS_CHILD]->(c)
-                                OPTIONAL MATCH (a:App)-[rel:HAS_MINI_TAXONOMY]->(r)
-                                DELETE rel
-                                WITH c
-                                MATCH (p:MiniTaxonomyNode {id: $primary})
-                                FOREACH (_ IN CASE WHEN c IS NOT NULL THEN [1] ELSE [] END |
-                                    MERGE (p)-[:HAS_CHILD]->(c)
-                                )
-                                DETACH DELETE r
-                            """, node_id=node_id, primary=primary_id)
-                        )
-            logger.info("Mini taxonomy merge complete.")
-        except Exception as e:
-            logger.error(f"Error during mini taxonomy merging: {e}", exc_info=True)
+        logger.info(f"Attempting to merge mini taxonomies for app '{app_name}'...")
+        merge_result = self.merge_mini_taxonomies(app_name)
+        logger.info(f"Merging complete: {merge_result}")
 
         return labels
 
