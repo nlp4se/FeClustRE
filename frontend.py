@@ -10,7 +10,7 @@ from typing import Dict, Any, Optional
 BASE_URL = 'http://localhost:3000'  # Backend host and port
 
 st.set_page_config(page_title="Feature Extraction & App Taxonomy", layout="wide")
-st.title("FeClustRE - Feature Extraction & Mobile App Feature Taxonomy generation")
+st.title("FeClustRE - Feature Extraction & Mobile App Feature Taxonomy   generation")
 
 # Initialize session state
 if 'processing_results' not in st.session_state:
