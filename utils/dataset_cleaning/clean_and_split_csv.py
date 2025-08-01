@@ -35,7 +35,6 @@ def clean_text(text):
 
 
 def clean_app_name(name):
-    """Clean and validate app_name"""
     if pd.isna(name) or not name:
         return ''
 
@@ -43,11 +42,9 @@ def clean_app_name(name):
     name = re.sub(r'[^\x20-\x7E]', '', name)  # Remove non-ASCII
     name = name.strip()
 
-    # Heuristic filter: too short or no alphabetic character
     if len(name) < 3 or not re.search(r'[a-zA-Z]', name):
         return ''
 
-    # Junky symbol patterns
     if re.search(r'[=<>@#\$%^&*~]+', name):
         return ''
 
@@ -55,7 +52,6 @@ def clean_app_name(name):
     if any(bad in name.lower() for bad in ['fix the replies', 'test', 'asdf', 'lorem']):
         return ''
 
-    # Should contain at least one capitalized word (heuristic for real app names)
     if not re.search(r'\b[A-Z][a-z]+', name):
         return ''
 
