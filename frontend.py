@@ -136,14 +136,47 @@ if uploaded_file:
 
     st.subheader("📊 Uploaded Data Preview")
 
-    col1, col2 = st.columns([2, 1])
+    # Overall statistics
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.dataframe(df.head(), use_container_width=True)
-
+        st.metric("Total Reviews", len(df))
     with col2:
-        st.metric("Total Rows", len(df))
-        st.metric("Apps", df['app_name'].nunique() if 'app_name' in df.columns else 0)
-        st.write("**Columns:**", df.columns.tolist())
+        st.metric("Total Apps", df['app_name'].nunique() if 'app_name' in df.columns else 0)
+    with col3:
+        st.metric("Categories", df['app_categoryId'].nunique() if 'app_categoryId' in df.columns else 0)
+    with col4:
+        avg_score = df['score'].mean() if 'score' in df.columns else 0
+        st.metric("Avg Score", f"{avg_score:.2f}")
+
+    # App breakdown
+    if 'app_name' in df.columns:
+        st.write("**Apps in Dataset:**")
+        app_stats = df.groupby('app_name').agg({
+            'review': 'count',
+            'score': 'mean',
+            'app_package': 'first',
+            'app_categoryId': 'first'
+        }).round(2)
+        app_stats.columns = ['Reviews', 'Avg Score', 'Package', 'Category']
+        st.dataframe(app_stats, use_container_width=True)
+
+        # Sample data from each app
+        with st.expander("Sample Reviews from Each App"):
+            for app_name in df['app_name'].unique()[:5]:  # Show max 5 apps
+                st.write(f"**{app_name}**")
+                app_data = df[df['app_name'] == app_name]
+                # Filter out rows with NaN reviews
+                valid_reviews = app_data.dropna(subset=['review'])[['review', 'score']].head(2)
+                if len(valid_reviews) == 0:
+                    st.write("No valid reviews found for this app")
+                    continue
+                for idx, row in valid_reviews.iterrows():
+                    review = str(row['review'])
+                    review_text = review[:200] + "..." if len(review) > 200 else review
+                    st.write(f"• Score {row['score']}: {review_text}")
+                st.divider()
+
+    st.write("**Columns:**", df.columns.tolist())
 
     # Validate required columns
     required_cols = {'app_name', 'review', 'app_package', 'app_categoryId', 'reviewId', 'score'}
@@ -364,94 +397,164 @@ if st.session_state.processing_results:
                             with st.expander(f"Candidate {i + 1}"):
                                 st.markdown(display_candidate_metrics(summary))
 
-# LLM Taxonomy Metrics
+# LLM Taxonomy Metrics and Visualization
 if st.session_state.processing_results:
     st.divider()
-    if st.button("📊 View LLM Taxonomy Metrics"):
-        with st.spinner("Fetching taxonomy metrics..."):
-            try:
-                metrics_resp = make_request("GET", f"{BASE_URL}/llm_taxonomy_metrics")
 
-                if metrics_resp.ok:
-                    metrics_data = metrics_resp.json()
+    col1, col2 = st.columns(2)
 
-                    st.subheader("🏷️ LLM Taxonomy Analysis")
+    with col1:
+        if st.button("📊 View LLM Taxonomy Metrics"):
+            with st.spinner("Fetching taxonomy metrics..."):
+                try:
+                    metrics_resp = make_request("GET", f"{BASE_URL}/llm_taxonomy_metrics")
 
-                    # Overview metrics
-                    overview = metrics_data.get('overview', {})
-                    col1, col2, col3, col4 = st.columns(4)
+                    if metrics_resp.ok:
+                        metrics_data = metrics_resp.json()
 
-                    with col1:
-                        st.metric("Total Taxonomies", overview.get('total_taxonomies', 0))
-                    with col2:
-                        st.metric("Distinct Tags", overview.get('distinct_tags', 0))
-                    with col3:
-                        st.metric("Duplicate Tags", overview.get('duplicate_tags', 0))
-                    with col4:
-                        st.metric("Low Quality", overview.get('low_quality_count', 0))
+                        st.subheader("🏷️ LLM Taxonomy Analysis")
 
-                    # Tag statistics
-                    with st.expander("📈 Tag Statistics"):
-                        tag_stats = metrics_data.get('tag_statistics', {})
+                        # Overview metrics
+                        overview = metrics_data.get('overview', {})
+                        col1, col2, col3, col4 = st.columns(4)
 
-                        # Most common tags
-                        most_common = tag_stats.get('most_common_tags', [])
-                        if most_common:
-                            st.write("**Most Common Tags:**")
-                            common_df = pd.DataFrame(most_common, columns=['Tag', 'Count'])
-                            st.dataframe(common_df, use_container_width=True)
-
-                        # Duplicate tags
-                        duplicates = tag_stats.get('duplicate_tags', {})
-                        if duplicates:
-                            st.write("**Duplicate Tags:**")
-                            dup_df = pd.DataFrame([
-                                {"Tag": tag, "Count": count}
-                                for tag, count in duplicates.items()
-                            ])
-                            st.dataframe(dup_df, use_container_width=True)
-
-                    # Structure analysis
-                    with st.expander("🏗️ Structure Analysis"):
-                        structure = metrics_data.get('structure_analysis', {})
-
-                        col1, col2 = st.columns(2)
                         with col1:
-                            st.metric("Average Depth", structure.get('avg_depth', 0))
-                            st.metric("Average Leaves", structure.get('avg_leaves', 0))
-
+                            st.metric("Total Taxonomies", overview.get('total_taxonomies', 0))
                         with col2:
-                            singletons = len(structure.get('singleton_taxonomies', []))
-                            large = len(structure.get('large_taxonomies', []))
-                            st.metric("Singleton Taxonomies", singletons)
-                            st.metric("Large Taxonomies", large)
+                            st.metric("Distinct Tags", overview.get('distinct_tags', 0))
+                        with col3:
+                            st.metric("Duplicate Tags", overview.get('duplicate_tags', 0))
+                        with col4:
+                            st.metric("Low Quality", overview.get('low_quality_count', 0))
 
-                    # Similarity analysis
-                    similarity = metrics_data.get('similarity_analysis', {})
-                    if similarity:
-                        with st.expander("🔗 Similarity Analysis"):
-                            for threshold, analysis in similarity.items():
-                                st.write(f"**{threshold.replace('_', ' ').title()}:**")
-                                col1, col2 = st.columns(2)
-                                with col1:
-                                    st.metric("Groups Found", analysis.get('total_groups', 0))
-                                    st.metric("Tags in Groups", analysis.get('tags_in_groups', 0))
-                                with col2:
-                                    st.metric("Singleton Tags", analysis.get('singleton_tags', 0))
+                        # Tag statistics
+                        with st.expander("📈 Tag Statistics"):
+                            tag_stats = metrics_data.get('tag_statistics', {})
 
-                    # Merge candidates
-                    merge_candidates = metrics_data.get('merge_candidates', [])
-                    if merge_candidates:
-                        with st.expander("🔄 Merge Candidates"):
-                            st.write("Tags with high similarity that could be merged:")
-                            merge_df = pd.DataFrame(merge_candidates[:10])
-                            st.dataframe(merge_df, use_container_width=True)
+                            # Most common tags
+                            most_common = tag_stats.get('most_common_tags', [])
+                            if most_common:
+                                st.write("**Most Common Tags:**")
+                                common_df = pd.DataFrame(most_common, columns=['Tag', 'Count'])
+                                st.dataframe(common_df, use_container_width=True)
 
-                else:
-                    st.error(f"Failed to fetch taxonomy metrics: {metrics_resp.status_code}")
+                            # Duplicate tags
+                            duplicates = tag_stats.get('duplicate_tags', {})
+                            if duplicates:
+                                st.write("**Duplicate Tags:**")
+                                dup_df = pd.DataFrame([
+                                    {"Tag": tag, "Count": count}
+                                    for tag, count in duplicates.items()
+                                ])
+                                st.dataframe(dup_df, use_container_width=True)
 
-            except Exception as e:
-                st.error(f"Error fetching taxonomy metrics: {str(e)}")
+                        # Structure analysis
+                        with st.expander("🏗️ Structure Analysis"):
+                            structure = metrics_data.get('structure_analysis', {})
+
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                st.metric("Average Depth", structure.get('avg_depth', 0))
+                                st.metric("Average Leaves", structure.get('avg_leaves', 0))
+
+                            with col2:
+                                singletons = len(structure.get('singleton_taxonomies', []))
+                                large = len(structure.get('large_taxonomies', []))
+                                st.metric("Singleton Taxonomies", singletons)
+                                st.metric("Large Taxonomies", large)
+
+                        # Merge candidates (only if meaningful)
+                        merge_candidates = metrics_data.get('merge_candidates', [])
+                        if merge_candidates:
+                            with st.expander("🔄 Potential Merges"):
+                                st.write("Tags with high similarity that could be merged:")
+                                merge_df = pd.DataFrame([
+                                    {
+                                        "Tag A": candidate["tag_a"],
+                                        "Tag B": candidate["tag_b"],
+                                        "Similarity": f"{candidate['similarity']:.3f}",
+                                        "Merge Recommended": "✅" if candidate.get("merge_candidate", False) else "⚠️"
+                                    }
+                                    for candidate in merge_candidates[:10]
+                                ])
+                                st.dataframe(merge_df, use_container_width=True)
+
+                    else:
+                        st.error(f"Failed to fetch taxonomy metrics: {metrics_resp.status_code}")
+
+                except Exception as e:
+                    st.error(f"Error fetching taxonomy metrics: {str(e)}")
+
+    with col2:
+        if st.button("🌳 Explore App Taxonomies"):
+            with st.spinner("Loading app taxonomies..."):
+                try:
+                    # Get all apps that have been processed
+                    app_names = list(st.session_state.processing_results.keys())
+
+                    st.subheader("🔍 App Taxonomy Explorer")
+
+                    selected_explore_app = st.selectbox(
+                        "Select app to explore:",
+                        app_names,
+                        key="explore_app_selector"
+                    )
+
+                    if selected_explore_app:
+                        # Fetch taxonomy data for the selected app
+                        taxonomy_resp = make_request("GET", f"{BASE_URL}/get_app_taxonomies/{selected_explore_app}")
+
+                        if taxonomy_resp.ok:
+                            taxonomy_data = taxonomy_resp.json()
+
+                            if taxonomy_data.get('taxonomies'):
+                                taxonomies = taxonomy_data['taxonomies']
+
+                                st.write(f"**Found {len(taxonomies)} taxonomies for {selected_explore_app}:**")
+
+                                # Display each taxonomy
+                                for i, taxonomy in enumerate(taxonomies):
+                                    llm_tag = taxonomy.get('llm_tag', 'Unlabeled')
+                                    features = taxonomy.get('features', [])
+                                    depth = taxonomy.get('depth', 0)
+
+                                    with st.expander(f"🏷️ {llm_tag} ({len(features)} features, depth {depth})"):
+                                        # Show features in a nice format
+                                        if features:
+                                            st.write("**Features:**")
+                                            # Group features in rows of 4
+                                            for j in range(0, len(features), 4):
+                                                feature_row = features[j:j + 4]
+                                                feature_cols = st.columns(len(feature_row))
+                                                for k, feature in enumerate(feature_row):
+                                                    with feature_cols[k]:
+                                                        st.code(feature, language=None)
+                                        else:
+                                            st.info("No features found for this taxonomy")
+
+                                        # Show tree visualization option
+                                        if st.button(f"📊 Visualize Tree Structure", key=f"viz_tree_{i}"):
+                                            # Create a simple tree visualization using text
+                                            st.write("**Tree Structure:**")
+                                            st.text(f"📁 {llm_tag}")
+                                            for feature in features:
+                                                st.text(f"  └── {feature}")
+                            else:
+                                st.info(
+                                    f"No taxonomies found for {selected_explore_app}. Make sure you've saved a clustering for this app.")
+                        else:
+                            st.error(f"Failed to fetch taxonomies: {taxonomy_resp.status_code}")
+                            # Fallback: show basic info from processing results
+                            st.info("Showing basic clustering info instead:")
+                            result = st.session_state.processing_results[selected_explore_app]
+                            top_features = result.get('top_features', {})
+                            if top_features:
+                                st.write("**Top Features Found:**")
+                                for feature, count in list(top_features.items())[:10]:
+                                    st.write(f"• {feature} ({count} occurrences)")
+
+                except Exception as e:
+                    st.error(f"Error exploring taxonomies: {str(e)}")
 
 else:
     # Welcome message
