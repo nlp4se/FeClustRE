@@ -457,7 +457,6 @@ def save_selected_clustering(app_name):
         logger.error(f"Failed to save clustering for '{app_name}': {e}", exc_info=True)
         return jsonify({"error": "Internal server error"}), 500
 
-
 def _parse_csv_data(csv_data):
     csv_reader = csv.DictReader(csv_data.splitlines())
     reviews_data = list(csv_reader)
@@ -466,19 +465,27 @@ def _parse_csv_data(csv_data):
         raise ValueError("No reviews found in CSV")
 
     apps = {}
+    filtered_count = 0
+
     for row in reviews_data:
-        app_name = row['app_name']
+        app_name = row.get('app_name')
+        review_text = row.get('review', '')
+
+        # Skip rows with missing app_name or empty review
+        if not app_name or not review_text or str(review_text).strip() == '':
+            filtered_count += 1
+            continue
+
         if app_name not in apps:
             apps[app_name] = {
-                'package': row['app_package'],
-                'category': row['app_categoryId'],
+                'package': row.get('app_package', '') or 'unknown',
+                'category': row.get('app_categoryId', '') or 'unknown',
                 'reviews': []
             }
         apps[app_name]['reviews'].append(row)
 
+    logger.info(f"Filtered out {filtered_count} rows with missing reviews")
     return apps
-
-
 def _process_app_reviews(app_name, reviews, extractor):
     logger.info(f"Processing app: {app_name}")
 
@@ -486,13 +493,24 @@ def _process_app_reviews(app_name, reviews, extractor):
     all_processed_texts = []
 
     for review in reviews:
-        original_text = review['review']
+        original_text = review.get('review', '')
         processed_text = preprocessor.preprocess_text(original_text)
+
+        # Handle score safely
+        score = review.get('score')
+        try:
+            if score is not None and str(score).strip() != '' and str(score).lower() != 'nan':
+                score = int(float(score))
+            else:
+                score = 0
+        except (ValueError, TypeError):
+            score = 0
+
         processed_reviews.append({
-            'review_id': review['reviewId'],
+            'review_id': review.get('reviewId', ''),
             'processed_text': processed_text,
             'original_text': original_text,
-            'score': int(review['score'])
+            'score': score
         })
         all_processed_texts.append(processed_text)
 
