@@ -303,15 +303,19 @@ class TaxonomyBuilder:
             """, parent_id=parent_id, child_id=child_id)
 
         def _build_tree(tx, subtree, parent_id, app_name, session_id):
-            # Create app-specific node ID
             node_id = f"mini_taxonomy_node_{app_name}_{session_id}_{node_counter[0]}"
             node_counter[0] += 1
             feature = subtree.get("feature", "internal")
             is_leaf = subtree.get("is_leaf", False)
             _create_node(tx, node_id, feature, is_leaf, session_id, app_name)
-            _create_link(tx, parent_id, node_id)
+
+            if parent_id:
+                _create_link(tx, parent_id, node_id)
+
             for child in subtree.get("children", []):
                 _build_tree(tx, child, node_id, app_name, session_id)
+
+            return node_id
 
         def _extract_tree(features):
             if len(features) == 1:
@@ -353,7 +357,7 @@ class TaxonomyBuilder:
                             MERGE (a)-[:HAS_MINI_TAXONOMY {method: $method}]->(r)
                         """, app_name=app_name, root_id=root_id, method=method)
                     )
-                    session.write_transaction(_build_tree, subtree, root_id, app_name, session_id)
+                    session.write_transaction(lambda tx: _build_tree(tx, subtree, root_id, app_name, session_id))
             except Exception as e:
                 logger.error(f"Failed to store LLM taxonomy for cluster {cluster_id} in app '{app_name}': {e}",
                              exc_info=True)
