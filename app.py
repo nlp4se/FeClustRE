@@ -457,6 +457,7 @@ def save_selected_clustering(app_name):
         logger.error(f"Failed to save clustering for '{app_name}': {e}", exc_info=True)
         return jsonify({"error": "Internal server error"}), 500
 
+
 def _parse_csv_data(csv_data):
     csv_reader = csv.DictReader(csv_data.splitlines())
     reviews_data = list(csv_reader)
@@ -486,6 +487,8 @@ def _parse_csv_data(csv_data):
 
     logger.info(f"Filtered out {filtered_count} rows with missing reviews")
     return apps
+
+
 def _process_app_reviews(app_name, reviews, extractor):
     logger.info(f"Processing app: {app_name}")
 
@@ -710,6 +713,22 @@ def get_feature_extractor():
     model_type = request.args.get("model_type", "tfrex").lower()
     return FeatureExtractor(model_type=model_type)
 
+
+@app.route('/mini_taxonomies/<app_name>', methods=['GET'])
+def get_mini_taxonomies(app_name):
+    try:
+        taxonomies = taxonomy_builder.get_mini_taxonomies_for_app(app_name)
+
+        return jsonify({
+            "status": "success",
+            "app_name": app_name,
+            "taxonomies": taxonomies,
+            "count": len(taxonomies)
+        })
+
+    except Exception as e:
+        logger.error(f"Failed to get mini taxonomies for '{app_name}': {e}")
+        return jsonify({"error": "Internal server error"}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=3000)
