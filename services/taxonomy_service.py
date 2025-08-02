@@ -364,6 +364,7 @@ class TaxonomyBuilder:
                             MERGE (a)-[:HAS_MINI_TAXONOMY {method: $method}]->(r)
                         """, app_name=app_name, root_id=root_id, method=method)
                     )
+                    # Build the tree structure under the root (don't pass root_id as parent)
                     session.write_transaction(lambda tx: _build_tree(tx, subtree, root_id, app_name, session_id))
             except Exception as e:
                 logger.error(f"Failed to store LLM taxonomy for cluster {cluster_id} in app '{app_name}': {e}",
@@ -373,8 +374,155 @@ class TaxonomyBuilder:
         merge_result = self.merge_mini_taxonomies(app_name)
         logger.info(f"Merging complete for app '{app_name}': {merge_result}")
 
-        return labels
+    def get_mini_taxonomies_for_app(self, app_name):
+        try:
+            with self.neo4j_conn.driver.session(database=self.neo4j_conn.database) as session:
+                result = session.run("""
+                    MATCH (app:App {name: $app_name})-[:HAS_MINI_TAXONOMY]->(root:MiniTaxonomyNode {app_name: $app_name})
+                    RETURN root.id as root_id, 
+                           root.llm_tag as label,
+                           root.session_id as session_id
+                    ORDER BY root.llm_tag
+                """, app_name=app_name)
 
+                taxonomies = []
+                for record in result:
+                    root_id = record['root_id']
+                    label = record['label']
+                    session_id = record['session_id']
+
+                    # Get the tree structure and metrics for this taxonomy
+                    tree_structure = self._get_taxonomy_tree_structure(root_id, app_name)
+                    features = self._get_taxonomy_features(root_id, app_name)
+
+                    taxonomies.append({
+                        'root_id': root_id,
+                        'label': label,
+                        'session_id': session_id,
+                        'tree_structure': tree_structure,
+                        'features': features,
+                        'depth': self._calculate_tree_depth(tree_structure),
+                        'leaf_count': len(features)
+                    })
+
+                return taxonomies
+
+        except Exception as e:
+            logger.error(f"Failed to get mini taxonomies for app '{app_name}': {e}", exc_info=True)
+            return []
+
+    def _get_taxonomy_tree_structure(self, root_id, app_name):
+        try:
+            with self.neo4j_conn.driver.session(database=self.neo4j_conn.database) as session:
+                result = session.run("""
+                    MATCH (root:MiniTaxonomyNode {id: $root_id, app_name: $app_name})
+                    OPTIONAL MATCH path = (root)-[:HAS_CHILD*]->(descendant:MiniTaxonomyNode {app_name: $app_name})
+                    WITH root, collect(DISTINCT {
+                        id: descendant.id,
+                        feature: descendant.feature,
+                        is_leaf: descendant.is_leaf,
+                        path_length: length(path)
+                    }) as descendants
+                    RETURN root.id as root_id,
+                           root.feature as root_feature,
+                           root.is_leaf as root_is_leaf,
+                           descendants
+                """, root_id=root_id, app_name=app_name)
+
+                record = result.single()
+                if not record:
+                    return {}
+
+                # Build the tree structure
+                return self._build_tree_structure_from_paths(record, app_name)
+
+        except Exception as e:
+            logger.error(f"Failed to get tree structure for {root_id}: {e}")
+            return {}
+
+    def _build_tree_structure_from_paths(self, record, app_name):
+        """Build nested tree structure from Neo4j path data"""
+        try:
+            with self.neo4j_conn.driver.session(database=self.neo4j_conn.database) as session:
+                # Get all parent-child relationships
+                result = session.run("""
+                    MATCH (parent:MiniTaxonomyNode {app_name: $app_name})-[:HAS_CHILD]->(child:MiniTaxonomyNode {app_name: $app_name})
+                    WHERE parent.id = $root_id OR (parent)-[:HAS_CHILD*0..]-(:MiniTaxonomyNode {id: $root_id})
+                    RETURN parent.id as parent_id, parent.feature as parent_feature, parent.is_leaf as parent_is_leaf,
+                           child.id as child_id, child.feature as child_feature, child.is_leaf as child_is_leaf
+                """, app_name=app_name, root_id=record['root_id'])
+
+                # Build adjacency list
+                children_map = {}
+                node_data = {}
+
+                # Add root node
+                root_id = record['root_id']
+                node_data[root_id] = {
+                    'feature': record['root_feature'],
+                    'is_leaf': record['root_is_leaf']
+                }
+                children_map[root_id] = []
+
+                for rel in result:
+                    parent_id = rel['parent_id']
+                    child_id = rel['child_id']
+
+                    # Store node data
+                    node_data[parent_id] = {
+                        'feature': rel['parent_feature'],
+                        'is_leaf': rel['parent_is_leaf']
+                    }
+                    node_data[child_id] = {
+                        'feature': rel['child_feature'],
+                        'is_leaf': rel['child_is_leaf']
+                    }
+
+                    # Build adjacency list
+                    if parent_id not in children_map:
+                        children_map[parent_id] = []
+                    children_map[parent_id].append(child_id)
+
+                # Build nested structure starting from root
+                def build_nested(node_id):
+                    node = node_data.get(node_id, {})
+                    children = children_map.get(node_id, [])
+
+                    return {
+                        'feature': node.get('feature', 'Unknown'),
+                        'is_leaf': node.get('is_leaf', False),
+                        'children': [build_nested(child_id) for child_id in children]
+                    }
+
+                return build_nested(root_id)
+
+        except Exception as e:
+            logger.error(f"Failed to build tree structure: {e}")
+            return {}
+
+    def _get_taxonomy_features(self, root_id, app_name):
+        """Get all leaf features for a taxonomy"""
+        try:
+            with self.neo4j_conn.driver.session(database=self.neo4j_conn.database) as session:
+                result = session.run("""
+                    MATCH (root:MiniTaxonomyNode {id: $root_id, app_name: $app_name})-[:HAS_CHILD*]->(leaf:MiniTaxonomyNode {app_name: $app_name})
+                    WHERE leaf.is_leaf = true AND leaf.feature IS NOT NULL
+                    RETURN DISTINCT leaf.feature as feature
+                """, root_id=root_id, app_name=app_name)
+
+                return [record['feature'] for record in result if record['feature']]
+
+        except Exception as e:
+            logger.error(f"Failed to get features for {root_id}: {e}")
+            return []
+
+    def _calculate_tree_depth(self, tree_structure):
+        """Calculate the maximum depth of a tree structure"""
+        if not tree_structure or not tree_structure.get('children'):
+            return 1
+
+        max_child_depth = max(self._calculate_tree_depth(child) for child in tree_structure['children'])
+        return 1 + max_child_depth
 
 def generate_cluster_label(features, mode="few-shot", base_url=None, model=None, used_labels=None, retries=3):
     cfg = config["default"]()
