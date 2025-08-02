@@ -29,8 +29,8 @@ class TaxonomyBuilder:
         try:
             with self.neo4j_conn.driver.session(database=self.neo4j_conn.database) as session:
                 result = session.run("""
-                    MATCH (app:App {name: $app_name})-[:HAS_MINI_TAXONOMY]->(root:MiniTaxonomyNode)
-                    OPTIONAL MATCH (root)-[:HAS_CHILD*]->(leaf)
+                    MATCH (app:App {name: $app_name})-[:HAS_MINI_TAXONOMY]->(root:MiniTaxonomyNode {app_name: $app_name})
+                    OPTIONAL MATCH (root)-[:HAS_CHILD*]->(leaf:MiniTaxonomyNode {app_name: $app_name})
                     WHERE NOT (leaf)-[:HAS_CHILD]->()
                     RETURN root.id as root_id, 
                            root.llm_tag as label,
@@ -75,17 +75,17 @@ class TaxonomyBuilder:
 
                         with self.neo4j_conn.driver.session(database=self.neo4j_conn.database) as session:
                             session.write_transaction(lambda tx: tx.run("""
-                                MATCH (r:MiniTaxonomyNode {id: $secondary_id})
-                                OPTIONAL MATCH (r)-[:HAS_CHILD]->(c)
-                                OPTIONAL MATCH (a:App)-[rel:HAS_MINI_TAXONOMY]->(r)
+                                MATCH (r:MiniTaxonomyNode {id: $secondary_id, app_name: $app_name})
+                                OPTIONAL MATCH (r)-[:HAS_CHILD]->(c:MiniTaxonomyNode {app_name: $app_name})
+                                OPTIONAL MATCH (a:App {name: $app_name})-[rel:HAS_MINI_TAXONOMY]->(r)
                                 DELETE rel
                                 WITH c, r
-                                MATCH (p:MiniTaxonomyNode {id: $primary_id})
+                                MATCH (p:MiniTaxonomyNode {id: $primary_id, app_name: $app_name})
                                 FOREACH (_ IN CASE WHEN c IS NOT NULL THEN [1] ELSE [] END |
                                     MERGE (p)-[:HAS_CHILD]->(c)
                                 )
                                 DETACH DELETE r
-                            """, secondary_id=secondary['root_id'], primary_id=primary['root_id']))
+                            """, secondary_id=secondary['root_id'], primary_id=primary['root_id'], app_name=app_name))
 
                         merges.append({
                             'merged_taxonomies': [secondary['label']],
@@ -114,11 +114,13 @@ class TaxonomyBuilder:
 
         tree_root, _ = to_tree(linkage_matrix, rd=True)
 
+        # Create app-specific session ID
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         session_id = f"{app_name}_taxonomy_{method}_{timestamp}_{uuid.uuid4().hex[:8]}"
 
         with self.neo4j_conn.driver.session(database=self.neo4j_conn.database) as session:
             node_counter = [0]
+            # Create app-specific root ID
             root_id = f"taxonomy_node_{app_name}_{timestamp}_{node_counter[0]}"
             session.write_transaction(
                 self._create_taxonomy_tree_with_app_link,
@@ -295,23 +297,26 @@ class TaxonomyBuilder:
             """, id=node_id, is_leaf=is_leaf, feature=feature,
                    session_id=session_id, app_name=app_name, llm_tag=llm_tag)
 
-        def _create_link(tx, parent_id, child_id):
+        def _create_link(tx, parent_id, child_id, app_name):
             tx.run("""
-                MATCH (p:MiniTaxonomyNode {id: $parent_id}),
-                      (c:MiniTaxonomyNode {id: $child_id})
+                MATCH (p:MiniTaxonomyNode {id: $parent_id, app_name: $app_name}),
+                      (c:MiniTaxonomyNode {id: $child_id, app_name: $app_name})
                 MERGE (p)-[:HAS_CHILD]->(c)
-            """, parent_id=parent_id, child_id=child_id)
+            """, parent_id=parent_id, child_id=child_id, app_name=app_name)
 
         def _build_tree(tx, subtree, parent_id, app_name, session_id):
+            # Create app-specific node ID
             node_id = f"mini_taxonomy_node_{app_name}_{session_id}_{node_counter[0]}"
             node_counter[0] += 1
             feature = subtree.get("feature", "internal")
             is_leaf = subtree.get("is_leaf", False)
             _create_node(tx, node_id, feature, is_leaf, session_id, app_name)
 
+            # Only create link if this is not the root node
             if parent_id:
-                _create_link(tx, parent_id, node_id)
+                _create_link(tx, parent_id, node_id, app_name)
 
+            # Recursively build children with this node as their parent
             for child in subtree.get("children", []):
                 _build_tree(tx, child, node_id, app_name, session_id)
 
@@ -350,7 +355,9 @@ class TaxonomyBuilder:
                 root_id = f"mini_taxonomy_root_{app_name}_{session_id}_{cluster_id}_{uuid.uuid4().hex[:8]}"
 
                 with self.neo4j_conn.driver.session(database=self.neo4j_conn.database) as session:
+                    # Create the root node first
                     session.write_transaction(_create_node, root_id, label, False, session_id, app_name, label)
+                    # Link the root to the app
                     session.write_transaction(
                         lambda tx: tx.run("""
                             MATCH (a:App {name: $app_name}), (r:MiniTaxonomyNode {id: $root_id, app_name: $app_name})
