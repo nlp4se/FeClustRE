@@ -115,11 +115,11 @@ class TaxonomyBuilder:
         tree_root, _ = to_tree(linkage_matrix, rd=True)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        session_id = f"{app_name}_taxonomy_{method}_{timestamp}"
+        session_id = f"{app_name}_taxonomy_{method}_{timestamp}_{uuid.uuid4().hex[:8]}"
 
         with self.neo4j_conn.driver.session(database=self.neo4j_conn.database) as session:
             node_counter = [0]
-            root_id = f"taxonomy_node_{node_counter[0]}"
+            root_id = f"taxonomy_node_{app_name}_{timestamp}_{node_counter[0]}"
             session.write_transaction(
                 self._create_taxonomy_tree_with_app_link,
                 tree_root, features, session_id, app_name, method, node_counter, root_id=root_id
@@ -147,7 +147,8 @@ class TaxonomyBuilder:
         is_leaf = node.is_leaf()
         feature = features[node.id] if is_leaf else None
 
-        node_id = f"taxonomy_node_{node_counter[0]}"
+        # Create app-specific node ID
+        node_id = f"taxonomy_node_{app_name}_{session_id}_{node_counter[0]}"
         node_counter[0] += 1
 
         tx.run("""
@@ -155,9 +156,10 @@ class TaxonomyBuilder:
                 id: $node_id,
                 is_leaf: $is_leaf,
                 feature: $feature,
-                session_id: $session_id
+                session_id: $session_id,
+                app_name: $app_name
             })
-        """, node_id=node_id, is_leaf=is_leaf, feature=feature, session_id=session_id)
+        """, node_id=node_id, is_leaf=is_leaf, feature=feature, session_id=session_id, app_name=app_name)
 
         if parent_id:
             tx.run("""
@@ -168,7 +170,7 @@ class TaxonomyBuilder:
         if node_id == root_id:
             tx.run("""
                 MATCH (a:App {name: $app_name})
-                MATCH (root:TaxonomyNode {id: $root_id})
+                MATCH (root:TaxonomyNode {id: $root_id, app_name: $app_name})
                 MERGE (a)-[:HAS_TAXONOMY {method: $method}]->(root)
             """, app_name=app_name, root_id=root_id, method=method)
 
@@ -196,8 +198,10 @@ class TaxonomyBuilder:
                 CREATE (sc:Subcluster {
                     id: $cluster_uuid,
                     cluster_id: $cluster_id,
-                    session_id: $session_id
+                    session_id: $session_id,
+                    app_name: $app_name
                 })
+                CREATE (a)-[:HAS_SUBCLUSTER]->(sc)
             """, app_name=app_name, cluster_uuid=cluster_uuid, cluster_id=cluster_id, session_id=session_id)
 
             for feature in feature_list:
@@ -272,19 +276,24 @@ class TaxonomyBuilder:
         }
 
     def store_llm_taxonomy(self, app_name, clusters, method="llm-clustering"):
-        session_id = f"{app_name}_llm_clusters_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        # Create app-specific session ID with unique identifier
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        unique_id = uuid.uuid4().hex[:8]
+        session_id = f"{app_name}_llm_clusters_{timestamp}_{unique_id}"
+
         node_counter = [0]
         labels = {}
 
-        def _create_node(tx, node_id, feature, is_leaf, session_id, llm_tag=None):
+        def _create_node(tx, node_id, feature, is_leaf, session_id, app_name, llm_tag=None):
             tx.run("""
                 MERGE (n:MiniTaxonomyNode {id: $id})
                 SET n.is_leaf = $is_leaf,
                     n.feature = $feature,
                     n.session_id = $session_id,
+                    n.app_name = $app_name,
                     n.llm_tag = $llm_tag
             """, id=node_id, is_leaf=is_leaf, feature=feature,
-                   session_id=session_id, llm_tag=llm_tag)
+                   session_id=session_id, app_name=app_name, llm_tag=llm_tag)
 
         def _create_link(tx, parent_id, child_id):
             tx.run("""
@@ -293,15 +302,16 @@ class TaxonomyBuilder:
                 MERGE (p)-[:HAS_CHILD]->(c)
             """, parent_id=parent_id, child_id=child_id)
 
-        def _build_tree(tx, subtree, parent_id):
-            node_id = f"mini_taxonomy_node_{node_counter[0]}"
+        def _build_tree(tx, subtree, parent_id, app_name, session_id):
+            # Create app-specific node ID
+            node_id = f"mini_taxonomy_node_{app_name}_{session_id}_{node_counter[0]}"
             node_counter[0] += 1
             feature = subtree.get("feature", "internal")
             is_leaf = subtree.get("is_leaf", False)
-            _create_node(tx, node_id, feature, is_leaf, session_id)
+            _create_node(tx, node_id, feature, is_leaf, session_id, app_name)
             _create_link(tx, parent_id, node_id)
             for child in subtree.get("children", []):
-                _build_tree(tx, child, node_id)
+                _build_tree(tx, child, node_id, app_name, session_id)
 
         def _extract_tree(features):
             if len(features) == 1:
@@ -321,7 +331,7 @@ class TaxonomyBuilder:
 
             return recurse(root)
 
-        logger.info(f"Creating mini taxonomies for {len(clusters)} clusters.")
+        logger.info(f"Creating mini taxonomies for app '{app_name}' with {len(clusters)} clusters.")
         for cluster_id, features in clusters.items():
             if len(features) == 1:
                 logger.info(f"Skipping cluster {cluster_id} with only one feature: {features[0]}")
@@ -332,28 +342,30 @@ class TaxonomyBuilder:
             labels[cluster_id] = label
             try:
                 subtree = _extract_tree(features)
-                root_id = f"mini_taxonomy_root_{uuid.uuid4().hex[:8]}"
+                # Create app-specific root ID
+                root_id = f"mini_taxonomy_root_{app_name}_{session_id}_{cluster_id}_{uuid.uuid4().hex[:8]}"
+
                 with self.neo4j_conn.driver.session(database=self.neo4j_conn.database) as session:
-                    session.write_transaction(_create_node, root_id, label, False, session_id, label)
+                    session.write_transaction(_create_node, root_id, label, False, session_id, app_name, label)
                     session.write_transaction(
                         lambda tx: tx.run("""
-                            MATCH (a:App {name: $app_name}), (r:MiniTaxonomyNode {id: $root_id})
+                            MATCH (a:App {name: $app_name}), (r:MiniTaxonomyNode {id: $root_id, app_name: $app_name})
                             MERGE (a)-[:HAS_MINI_TAXONOMY {method: $method}]->(r)
                         """, app_name=app_name, root_id=root_id, method=method)
                     )
-                    session.write_transaction(_build_tree, subtree, root_id)
+                    session.write_transaction(_build_tree, subtree, root_id, app_name, session_id)
             except Exception as e:
-                logger.error(f"Failed to store LLM taxonomy for cluster {cluster_id}: {e}", exc_info=True)
+                logger.error(f"Failed to store LLM taxonomy for cluster {cluster_id} in app '{app_name}': {e}",
+                             exc_info=True)
 
         logger.info(f"Attempting to merge mini taxonomies for app '{app_name}'...")
         merge_result = self.merge_mini_taxonomies(app_name)
-        logger.info(f"Merging complete: {merge_result}")
+        logger.info(f"Merging complete for app '{app_name}': {merge_result}")
 
         return labels
 
 
 def generate_cluster_label(features, mode="few-shot", base_url=None, model=None, used_labels=None, retries=3):
-
     cfg = config["default"]()
     base_url = base_url or cfg.OLLAMA_BASE_URL
     model = model or cfg.OLLAMA_MODEL
@@ -415,7 +427,7 @@ def generate_cluster_label(features, mode="few-shot", base_url=None, model=None,
                     "Features: get help with writing, brainstorming, learning\nCategory: Creative and educational support\n\n"
                     "Features: summarise and find quick info from Gmail or Google Drive\nCategory: Productivity and information retrieval\n\n"
                     "Features: use text, voice, photos, and your camera to get help\nCategory: Multimodal assistance\n\n"
-                    "Features: ask for help with what’s on your phone screen using 'Hey Google'\nCategory: Context-aware interaction\n\n"
+                    "Features: ask for help with what's on your phone screen using 'Hey Google'\nCategory: Context-aware interaction\n\n"
                     "Features: make plans with Google Maps and Google Flights\nCategory: Planning and navigation\n\n"
                     f"Features: {', '.join(features)}\nCategory:"
                 )
@@ -465,7 +477,6 @@ def generate_cluster_label(features, mode="few-shot", base_url=None, model=None,
         except Exception as e:
             logger.error(f"Error generating label: {str(e)}")
 
-    fallback = f"Category {len(used_labels)+1}"
+    fallback = f"Category {len(used_labels) + 1}"
     logger.warning(f"LLM failed to generate distinct label. Using fallback: {fallback}")
     return fallback
-
