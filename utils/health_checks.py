@@ -5,17 +5,33 @@ import requests
 import psutil
 import sys
 
+
 def check_transfeatex():
-    try:
+    import os
+
+    use_vpn = os.environ.get('TRANSFEATEX_USE_VPN', 'true').lower() == 'true'
+
+    if use_vpn:
+        endpoint = 'http://10.4.63.10:3004/extract-features'
+        test_input = {
+            "text": [
+                {"id": "test1", "text": "the app video camera video call chat text video send message I love"}
+            ]
+        }
+    else:
         endpoint = 'http://gessi-chatbots.essi.upc.edu:3004/extract-features-aux'
         test_input = {"text": "the app video camera video call chat text video send message I love"}
+
+    try:
         response = requests.post(endpoint, json=test_input, timeout=5)
         if response.status_code == 200:
-            return {"status": "healthy", "endpoint": endpoint}
+            return {"status": "healthy", "endpoint": endpoint, "endpoint_type": "VPN" if use_vpn else "Original"}
         else:
-            return {"status": "unhealthy", "error": f"Unexpected status code: {response.status_code}", "endpoint": endpoint}
+            return {"status": "unhealthy", "error": f"Unexpected status code: {response.status_code}",
+                    "endpoint": endpoint, "endpoint_type": "VPN" if use_vpn else "Original"}
     except Exception as e:
-        return {"status": "unhealthy", "error": str(e), "endpoint": endpoint}
+        return {"status": "unhealthy", "error": str(e), "endpoint": endpoint,
+                "endpoint_type": "VPN" if use_vpn else "Original"}
 
 
 def check_neo4j(neo4j_conn):

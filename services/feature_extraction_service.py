@@ -34,11 +34,17 @@ class FeatureExtractor:
                     aggregation_strategy="simple",
                     device=0 if torch.cuda.is_available() else -1
                 )
+
             elif self.model_type == 'transfeatex':
                 self.model_name = "TransfeatEx (API)"
-                self.transfeatex_endpoint = os.environ.get('TRANSFEATEX_URL',
-                                                           'http://gessi-chatbots.essi.upc.edu:3004') + '/extract-features-aux'
-                logger.info("Configured TransfeatEx API endpoint.")
+                use_vpn = os.environ.get('TRANSFEATEX_USE_VPN', 'true').lower() == 'true'
+                if use_vpn:
+                    self.transfeatex_endpoint = 'http://10.4.63.10:3004/extract-features'
+                    logger.info("Configured TransfeatEx VPN endpoint.")
+                else:
+                    self.transfeatex_endpoint = os.environ.get('TRANSFEATEX_URL',
+                                                               'http://gessi-chatbots.essi.upc.edu:3004') + '/extract-features-aux'
+                    logger.info("Configured TransfeatEx original endpoint.")
 
 
             else:
