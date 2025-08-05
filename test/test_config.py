@@ -1,29 +1,31 @@
 import argparse
 import sys
 from systematic_testing import SystematicTester
+import pandas as pd
+import matplotlib.pyplot as plt
 
-
-def medium_test():
-    print("Running medium test...")
+def mock_test():
+    print("Running mock test...")
 
     tester = SystematicTester()
 
     csv_files = [
-        "../data/input/endpoint_1_process_reviews/ai_assistants/cleaned_data/Claude_by_Anthropic.csv",
+        "../data/input/endpoint_1_process_reviews/ai_assistants/cleaned_data/ChatGPT.csv",
+        "../data/input/endpoint_1_process_reviews/ai_assistants/cleaned_data/Microsoft_Copilot.csv",
     ]
 
     configurations = tester.run_full_pipeline(
         csv_files=csv_files,
         model_types=['transfeatex'],
-        sample_sizes=[100],
-        selection_strategies=['silhouette']
+        sample_sizes=[99999999],
+        selection_strategies=['balanced', 'silhouette', 'conservative']
     )
 
     evaluation_results = tester.evaluate_clustering_quality()
     tester.generate_visualizations()
     report = tester.generate_report()
 
-    print(f"Medium test complete! Session: {tester.session_id}")
+    print(f"Mock test complete -> Session: {tester.session_id}")
     return tester.session_id
 
 
@@ -141,9 +143,6 @@ def ablation_study():
 
 
 def generate_comparative_analysis(ablation_results):
-    import pandas as pd
-    import matplotlib.pyplot as plt
-
     print("Generating comparative analysis...")
 
     comparison_data = []
@@ -193,7 +192,7 @@ def generate_comparative_analysis(ablation_results):
 def main():
     parser = argparse.ArgumentParser(description='Systematic Testing Framework for Feature Clustering')
     parser.add_argument('mode',
-                        choices=['medium', 'full', 'custom', 'ablation'],
+                        choices=['mock', 'full', 'custom', 'ablation'],
                         help='Test mode to run')
     parser.add_argument('--session-file', type=str, help='Session file to resume (for resume mode)')
     parser.add_argument('--csv-files', nargs='+', help='CSV files to process (for custom mode)')
@@ -204,8 +203,8 @@ def main():
     args = parser.parse_args()
 
     try:
-        if args.mode == 'medium':
-            session_id = medium_test()
+        if args.mode == 'mock':
+            session_id = mock_test()
         elif args.mode == 'full':
             session_id = full_test()
         elif args.mode == 'custom':
