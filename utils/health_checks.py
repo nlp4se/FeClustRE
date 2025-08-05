@@ -1,14 +1,12 @@
-
 import nltk
 import torch
 import requests
 import psutil
 import sys
+import os
 
 
 def check_transfeatex():
-    import os
-
     use_vpn = os.environ.get('TRANSFEATEX_USE_VPN', 'true').lower() == 'true'
 
     if use_vpn:
@@ -41,7 +39,10 @@ def check_neo4j(neo4j_conn):
                 return {"status": "healthy", "database": neo4j_conn.database, "uri": neo4j_conn.uri}
     except:
         pass
-    return {"status": "unhealthy", "error": "Cannot connect to Neo4j", "database": neo4j_conn.database, "uri": neo4j_conn.uri}
+    return {"status": "unhealthy",
+            "error": "Cannot connect to Neo4j",
+            "database": neo4j_conn.database,
+            "uri": neo4j_conn.uri}
 
 
 def check_tfrex_model(feature_extractor):
@@ -53,7 +54,8 @@ def check_tfrex_model(feature_extractor):
         else:
             raise ValueError("Model or tokenizer not loaded")
     except Exception as e:
-        return {"status": "unhealthy", "error": str(e), "model_name": getattr(feature_extractor, "model_name", "unknown")}
+        return {"status": "unhealthy", "error": str(e),
+                "model_name": getattr(feature_extractor, "model_name", "unknown")}
 
 
 def check_embedding_model(feature_extractor):

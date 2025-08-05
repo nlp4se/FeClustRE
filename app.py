@@ -684,7 +684,6 @@ def _process_csv_data(csv_data, extractor=None):
 
         return jsonify({
             "status": "success",
-            "message": "Complete pipeline executed: CSV -> preprocessing -> Neo4j -> clustering -> taxonomy",
             "results": results
         })
 
