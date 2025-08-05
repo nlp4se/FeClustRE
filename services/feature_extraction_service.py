@@ -10,7 +10,7 @@ from sentence_transformers import SentenceTransformer
 logger = logging.getLogger(__name__)
 
 class FeatureExtractor:
-    def __init__(self, model_type='tfrex'):
+    def __init__(self, model_type='t-frex'):
         self.model_type = model_type.lower()
         self.tokenizer = None
         self.model = None
@@ -18,11 +18,13 @@ class FeatureExtractor:
         self.embedding_model = None
         self.re_extractor = None
         self.model_name = None
+
         self._initialize_models()
+        self.batch_size = 100
 
     def _initialize_models(self):
         try:
-            if self.model_type == 'tfrex':
+            if self.model_type == 't-frex':
                 self.model_name = "quim-motger/t-frex-bert-base-uncased"
                 logger.info("Loading T-FREX model...")
                 self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
@@ -37,13 +39,13 @@ class FeatureExtractor:
 
             elif self.model_type == 'transfeatex':
                 self.model_name = "TransfeatEx (API)"
-                use_vpn = os.environ.get('TRANSFEATEX_USE_VPN', 'true').lower() == 'true'
+                use_vpn = False
                 if use_vpn:
                     self.transfeatex_endpoint = 'http://10.4.63.10:3004/extract-features'
                     logger.info("Configured TransfeatEx VPN endpoint.")
                 else:
                     self.transfeatex_endpoint = os.environ.get('TRANSFEATEX_URL',
-                                                               'http://gessi-chatbots.essi.upc.edu:3004') + '/extract-features-aux'
+                                                               'http://gessi-chatbots.essi.upc.edu:3004') + '/extract-features'
                     logger.info("Configured TransfeatEx original endpoint.")
 
 
@@ -68,20 +70,49 @@ class FeatureExtractor:
             return self._extract_features_tfrex(texts)
 
     def _extract_features_transfeatex(self, texts):
-        features_per_text = []
-        for text in texts:
+        all_features = []
+
+        def chunked(iterable, size):
+            for i in range(0, len(iterable), size):
+                yield iterable[i:i + size]
+
+        for batch_idx, batch in enumerate(chunked(texts, self.batch_size)):
+            payload = {
+                "text": [
+                    {"id": f"input_{batch_idx * self.batch_size + i}", "text": text}
+                    for i, text in enumerate(batch)
+                ]
+            }
+
             try:
-                response = requests.post(self.transfeatex_endpoint, json={"text": text})
+                response = requests.post(self.transfeatex_endpoint, json=payload)
+
                 if response.status_code == 200:
-                    features = response.json()
-                    features_per_text.append(features if isinstance(features, list) else [])
+                    response_data = response.json()
+
+                    if not isinstance(response_data, list):
+                        logger.warning(f"TransfeatEx response is not a list: {response_data}")
+                        continue
+
+                    if len(response_data) != len(batch):
+                        logger.warning(
+                            f"TransfeatEx response length mismatch (got {len(response_data)}, expected {len(batch)})")
+                        continue
+
+                    for item in response_data:
+                        features = item.get("features", [])
+                        if isinstance(features, list):
+                            all_features.extend(features)
+                        else:
+                            logger.warning(f"Malformed features in response item: {item}")
+
                 else:
                     logger.warning(f"TransfeatEx returned status {response.status_code}")
-                    features_per_text.append([])
+
             except Exception as e:
                 logger.error(f"Error contacting TransfeatEx: {str(e)}")
-                features_per_text.append([])
-        return features_per_text
+
+        return all_features
 
     def _extract_features_tfrex(self, texts):
         features_per_text = []
