@@ -11,13 +11,13 @@ def mock_test():
 
     csv_files = [
         "../data/input/endpoint_1_process_reviews/ai_assistants/cleaned_data/ChatGPT.csv",
-        "../data/input/endpoint_1_process_reviews/ai_assistants/cleaned_data/Microsoft_Copilot.csv",
+        "../data/input/endpoint_1_process_reviews/ai_assistants/cleaned_data/Claude_by_Anthropic.csv",
     ]
 
     configurations = tester.run_full_pipeline(
         csv_files=csv_files,
-        model_types=['transfeatex'],
-        sample_sizes=[99999999],
+        model_types=['transfeatex', 't-frex'],
+        sample_sizes=[100, 500],
         selection_strategies=['balanced', 'silhouette', 'conservative']
     )
 
