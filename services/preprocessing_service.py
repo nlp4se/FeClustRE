@@ -69,9 +69,10 @@ class ReviewPreprocessor:
         tokens = word_tokenize(cleaned_text)
 
         processed_tokens = []
+        '''
         for token in tokens:
             if len(token) > 2 and token.isalpha() and token not in self.stop_words:
                 lemmatized = self.lemmatizer.lemmatize(token)
                 processed_tokens.append(lemmatized)
-
-        return ' '.join(processed_tokens)
+        '''
+        return ' '.join(tokens)
