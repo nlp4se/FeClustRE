@@ -263,13 +263,15 @@ class SystematicTester:
         return all_configurations
 
     def evaluate_clustering_quality(self):
-        logger.info("Starting clustering quality evaluation...")
+        logger.info("Starting comprehensive clustering quality evaluation...")
 
         evaluation_results = {
             'internal_metrics': {},
             'external_metrics': {},
             'app_comparisons': {},
             'threshold_analysis': {},
+            'cohesion_separation': {},
+            'temporal_analysis': {},
             'timestamp': datetime.now().isoformat()
         }
 
@@ -285,6 +287,8 @@ class SystematicTester:
         # Internal clustering quality metrics
         internal_metrics = []
         threshold_data = []
+        cohesion_data = []
+        separation_data = []
 
         for csv_name, configs in apps_data.items():
             for config in configs:
@@ -296,6 +300,10 @@ class SystematicTester:
                     for i, candidate in enumerate(candidates):
                         summary = candidate.get('summary', {})
                         metrics = summary.get('metrics', {})
+                        clustering = candidate.get('clustering', {})
+
+                        # Calculate cohesion and separation
+                        cohesion, separation = self._calculate_cohesion_separation(clustering)
 
                         metric_data = {
                             'csv_file': csv_name,
@@ -307,16 +315,26 @@ class SystematicTester:
                             'n_clusters': summary.get('n_clusters', 0),
                             'avg_cluster_size': summary.get('avg_cluster_size', 0),
                             'silhouette_score': metrics.get('silhouette_score', 0),
-                            'davies_bouldin_score': metrics.get('davies_bouldin_score', float('inf'))
+                            'davies_bouldin_score': metrics.get('davies_bouldin_score', float('inf')),
+                            'cohesion': cohesion,
+                            'separation': separation
                         }
 
                         internal_metrics.append(metric_data)
                         threshold_data.append(metric_data)
 
+                        if cohesion is not None:
+                            cohesion_data.append({
+                                'csv_file': csv_name,
+                                'model_type': config['model_type'],
+                                'cohesion': cohesion,
+                                'separation': separation,
+                                'app_name': app_name
+                            })
+
         if internal_metrics:
             import pandas as pd
             metrics_df = pd.DataFrame(internal_metrics)
-
             metrics_df = metrics_df.replace([float('inf'), -float('inf')], [999999, -999999])
 
             evaluation_results['internal_metrics'] = {
@@ -336,32 +354,56 @@ class SystematicTester:
                             metrics_df[metrics_df['davies_bouldin_score'] != 999999]['davies_bouldin_score'].min()),
                         'max': float(
                             metrics_df[metrics_df['davies_bouldin_score'] != 999999]['davies_bouldin_score'].max())
+                    },
+                    'cohesion': {
+                        'mean': float(metrics_df[metrics_df['cohesion'].notna()]['cohesion'].mean()),
+                        'std': float(metrics_df[metrics_df['cohesion'].notna()]['cohesion'].std()),
+                        'min': float(metrics_df[metrics_df['cohesion'].notna()]['cohesion'].min()),
+                        'max': float(metrics_df[metrics_df['cohesion'].notna()]['cohesion'].max())
+                    },
+                    'separation': {
+                        'mean': float(metrics_df[metrics_df['separation'].notna()]['separation'].mean()),
+                        'std': float(metrics_df[metrics_df['separation'].notna()]['separation'].std()),
+                        'min': float(metrics_df[metrics_df['separation'].notna()]['separation'].min()),
+                        'max': float(metrics_df[metrics_df['separation'].notna()]['separation'].max())
                     }
                 },
-                # Convert groupby results to serializable format
                 'by_model': self._convert_groupby_to_dict(metrics_df.groupby('model_type').agg({
                     'silhouette_score': ['mean', 'std'],
                     'davies_bouldin_score': ['mean', 'std'],
-                    'n_clusters': ['mean', 'std']
+                    'n_clusters': ['mean', 'std'],
+                    'cohesion': ['mean', 'std'],
+                    'separation': ['mean', 'std']
                 })),
                 'correlation_matrix': metrics_df[['silhouette_score', 'davies_bouldin_score',
-                                                  'n_clusters', 'avg_cluster_size', 'threshold']].corr().to_dict()
+                                                  'n_clusters', 'avg_cluster_size', 'threshold',
+                                                  'cohesion', 'separation']].corr().to_dict()
             }
 
+            # Threshold analysis for optimal threshold finding
+            evaluation_results['threshold_analysis'] = self._analyze_threshold_evolution(metrics_df)
+
+        # Enhanced external metrics
         external_metrics = {
             'cluster_size_distribution': {},
             'app_diversity': {},
-            'threshold_evolution': {}
+            'cluster_counts': {},
+            'optimal_thresholds': {}
         }
 
         for csv_name, configs in apps_data.items():
             sizes = []
+            cluster_counts = []
+            thresholds = []
+
             for config in configs:
                 best_selections = config.get('best_selections', {})
                 for app_name, selection in best_selections.items():
                     clustering = selection['candidate']['clustering']
                     clusters = clustering.get('clusters', {})
                     sizes.extend([len(features) for features in clusters.values()])
+                    cluster_counts.append(len(clusters))
+                    thresholds.append(selection['candidate']['summary'].get('threshold', 0))
 
             if sizes:
                 import numpy as np
@@ -378,7 +420,21 @@ class SystematicTester:
                     }
                 }
 
+                external_metrics['cluster_counts'][csv_name] = {
+                    'mean': float(np.mean(cluster_counts)),
+                    'std': float(np.std(cluster_counts)),
+                    'min': int(np.min(cluster_counts)),
+                    'max': int(np.max(cluster_counts))
+                }
+
+                external_metrics['optimal_thresholds'][csv_name] = {
+                    'mean': float(np.mean(thresholds)),
+                    'std': float(np.std(thresholds)),
+                    'most_common': float(max(set(thresholds), key=thresholds.count))
+                }
+
         evaluation_results['external_metrics'] = external_metrics
+        evaluation_results['cohesion_separation'] = cohesion_data
 
         # Store evaluation results
         self.session_data['evaluation_metrics'] = evaluation_results
@@ -386,14 +442,95 @@ class SystematicTester:
 
         return evaluation_results
 
+    def _calculate_cohesion_separation(self, clustering):
+        try:
+            clusters = clustering.get('clusters', {})
+            if len(clusters) < 2:
+                return None, None
+
+            cluster_sizes = [len(features) for features in clusters.values()]
+
+            # Cohesion: inverse of average cluster size variance (smaller clusters = higher cohesion)
+            cohesion = 1.0 / (1.0 + np.var(cluster_sizes))
+
+            # Separation: based on feature overlap between clusters
+            all_features = set()
+            for features in clusters.values():
+                all_features.update(features)
+
+            overlap_count = 0
+            total_comparisons = 0
+            cluster_lists = list(clusters.values())
+
+            for i in range(len(cluster_lists)):
+                for j in range(i + 1, len(cluster_lists)):
+                    set_i = set(cluster_lists[i])
+                    set_j = set(cluster_lists[j])
+                    overlap = len(set_i.intersection(set_j))
+                    overlap_count += overlap
+                    total_comparisons += 1
+
+            # Separation: inverse of average overlap (less overlap = better separation)
+            avg_overlap = overlap_count / total_comparisons if total_comparisons > 0 else 0
+            separation = 1.0 / (1.0 + avg_overlap)
+
+            return float(cohesion), float(separation)
+
+        except Exception as e:
+            logger.error(f"Error calculating cohesion/separation: {e}")
+            return None, None
+
+    def _analyze_threshold_evolution(self, metrics_df):
+        threshold_analysis = {}
+
+        # Group by threshold and calculate average scores
+        threshold_groups = metrics_df.groupby('threshold').agg({
+            'silhouette_score': ['mean', 'std', 'count'],
+            'davies_bouldin_score': ['mean', 'std'],
+            'n_clusters': ['mean', 'std'],
+            'cohesion': ['mean', 'std'],
+            'separation': ['mean', 'std']
+        }).round(4)
+
+        # Find optimal threshold based on silhouette score
+        threshold_means = metrics_df.groupby('threshold')['silhouette_score'].mean()
+        optimal_threshold = threshold_means.idxmax()
+
+        # Calculate elbow point for threshold selection
+        thresholds = sorted(threshold_means.index)
+        scores = [threshold_means[t] for t in thresholds]
+
+        # Simple elbow detection using second derivative
+        elbow_threshold = None
+        if len(scores) >= 3:
+            second_derivatives = []
+            for i in range(1, len(scores) - 1):
+                second_deriv = scores[i - 1] - 2 * scores[i] + scores[i + 1]
+                second_derivatives.append(abs(second_deriv))
+
+            if second_derivatives:
+                elbow_idx = second_derivatives.index(max(second_derivatives)) + 1
+                elbow_threshold = thresholds[elbow_idx]
+
+        threshold_analysis = {
+            'optimal_threshold': float(optimal_threshold),
+            'optimal_silhouette': float(threshold_means[optimal_threshold]),
+            'elbow_threshold': float(elbow_threshold) if elbow_threshold else None,
+            'threshold_evolution': self._convert_groupby_to_dict(threshold_groups),
+            'threshold_range': {
+                'min': float(min(thresholds)),
+                'max': float(max(thresholds)),
+                'count': len(thresholds)
+            }
+        }
+
+        return threshold_analysis
+
     def _convert_groupby_to_dict(self, groupby_result):
         result_dict = {}
 
         for index, row in groupby_result.iterrows():
-            # Convert index to string if it's not already
             key = str(index) if not isinstance(index, str) else index
-
-            # Convert the row to a dictionary with string keys
             row_dict = {}
             for col_tuple, value in row.items():
                 # Handle multi-level column names (tuples)
@@ -401,8 +538,6 @@ class SystematicTester:
                     col_key = '_'.join(str(x) for x in col_tuple)
                 else:
                     col_key = str(col_tuple)
-
-                # Convert numpy types to Python types
                 if hasattr(value, 'item'):
                     row_dict[col_key] = float(value.item()) if not pd.isna(value) else None
                 else:
@@ -413,7 +548,7 @@ class SystematicTester:
         return result_dict
 
     def generate_visualizations(self):
-        logger.info("Generating evaluation visualizations...")
+        logger.info("Generating comprehensive evaluation visualizations...")
 
         viz_dir = self.results_dir / f"visualizations_{self.session_id}"
         viz_dir.mkdir(exist_ok=True)
@@ -431,6 +566,10 @@ class SystematicTester:
                 for i, candidate in enumerate(candidates):
                     summary = candidate.get('summary', {})
                     metrics = summary.get('metrics', {})
+                    clustering = candidate.get('clustering', {})
+
+                    # Calculate cohesion and separation
+                    cohesion, separation = self._calculate_cohesion_separation(clustering)
 
                     internal_metrics.append({
                         'csv_file': Path(config['csv_file']).stem,
@@ -440,7 +579,9 @@ class SystematicTester:
                         'silhouette_score': metrics.get('silhouette_score', 0),
                         'davies_bouldin_score': metrics.get('davies_bouldin_score', float('inf')),
                         'n_clusters': summary.get('n_clusters', 0),
-                        'avg_cluster_size': summary.get('avg_cluster_size', 0)
+                        'avg_cluster_size': summary.get('avg_cluster_size', 0),
+                        'cohesion': cohesion,
+                        'separation': separation
                     })
 
         df = pd.DataFrame(internal_metrics)
@@ -454,15 +595,15 @@ class SystematicTester:
 
         plt.style.use('seaborn-v0_8')
 
-        # 1. Silhouette vs Davies-Bouldin scatter plot
-        plt.figure(figsize=(12, 8))
+        # 1. Main clustering quality overview (2x3 grid)
+        plt.figure(figsize=(16, 12))
 
-        # Create subplot for scatter plot by model type
-        plt.subplot(2, 2, 1)
+        # Silhouette vs Davies-Bouldin scatter plot by model type
+        plt.subplot(2, 3, 1)
         for model in df['model_type'].unique():
             model_data = df[df['model_type'] == model]
             plt.scatter(model_data['silhouette_score'], model_data['davies_bouldin_score'],
-                        label=model, alpha=0.7)
+                        label=model, alpha=0.7, s=60)
 
         plt.xlabel('Silhouette Score (higher is better)')
         plt.ylabel('Davies-Bouldin Score (lower is better)')
@@ -470,46 +611,216 @@ class SystematicTester:
         plt.legend()
         plt.grid(True, alpha=0.3)
 
-        # 2. Threshold evolution
-        plt.subplot(2, 2, 2)
-        threshold_groups = df.groupby(['threshold', 'model_type']).agg({
-            'silhouette_score': 'mean',
-            'davies_bouldin_score': 'mean'
-        }).reset_index()
+        # Threshold evolution with elbow detection
+        plt.subplot(2, 3, 2)
+        for model in df['model_type'].unique():
+            model_data = df[df['model_type'] == model]
+            threshold_avg = model_data.groupby('threshold')['silhouette_score'].mean()
+            plt.plot(threshold_avg.index, threshold_avg.values,
+                     marker='o', label=f'{model}', linewidth=2, markersize=6)
 
-        for model in threshold_groups['model_type'].unique():
-            model_data = threshold_groups[threshold_groups['model_type'] == model]
-            plt.plot(model_data['threshold'], model_data['silhouette_score'],
-                     marker='o', label=f'{model} (Silhouette)')
+            # Mark potential elbow point
+            if len(threshold_avg) >= 3:
+                optimal_idx = threshold_avg.values.argmax()
+                plt.axvline(x=threshold_avg.index[optimal_idx],
+                            linestyle='--', alpha=0.5,
+                            label=f'{model} optimal')
 
         plt.xlabel('Height Threshold')
         plt.ylabel('Average Silhouette Score')
-        plt.title('Threshold Evolution')
+        plt.title('Threshold Evolution & Optimal Points')
         plt.legend()
         plt.grid(True, alpha=0.3)
 
-        # 3. Cluster size distribution
-        plt.subplot(2, 2, 3)
-        df.boxplot(column='avg_cluster_size', by='model_type', ax=plt.gca())
-        plt.title('Cluster Size Distribution by Model')
-        plt.xlabel('Model Type')
-        plt.ylabel('Average Cluster Size')
+        # Cohesion vs Separation analysis
+        plt.subplot(2, 3, 3)
+        cohesion_data = df.dropna(subset=['cohesion', 'separation'])
+        if not cohesion_data.empty:
+            for model in cohesion_data['model_type'].unique():
+                model_data = cohesion_data[cohesion_data['model_type'] == model]
+                plt.scatter(model_data['cohesion'], model_data['separation'],
+                            label=model, alpha=0.7, s=60)
 
-        # 4. Number of clusters distribution
-        plt.subplot(2, 2, 4)
+            plt.xlabel('Intra-cluster Cohesion (higher is better)')
+            plt.ylabel('Inter-cluster Separation (higher is better)')
+            plt.title('Cohesion vs Separation Analysis')
+            plt.legend()
+            plt.grid(True, alpha=0.3)
+        else:
+            plt.text(0.5, 0.5, 'No cohesion/separation data available',
+                     ha='center', va='center', transform=plt.gca().transAxes)
+
+        # Number of clusters distribution
+        plt.subplot(2, 3, 4)
         df.boxplot(column='n_clusters', by='model_type', ax=plt.gca())
-        plt.title('Number of Clusters by Model')
+        plt.title('Number of Clusters Distribution by Model')
+        plt.suptitle('')  # Remove automatic suptitle
         plt.xlabel('Model Type')
         plt.ylabel('Number of Clusters')
 
+        # Cluster size distribution
+        plt.subplot(2, 3, 5)
+        df.boxplot(column='avg_cluster_size', by='model_type', ax=plt.gca())
+        plt.title('Average Cluster Size Distribution by Model')
+        plt.suptitle('')  # Remove automatic suptitle
+        plt.xlabel('Model Type')
+        plt.ylabel('Average Cluster Size')
+
+        # Threshold vs Number of clusters (elbow plot)
+        plt.subplot(2, 3, 6)
+        for model in df['model_type'].unique():
+            model_data = df[df['model_type'] == model]
+            threshold_clusters = model_data.groupby('threshold')['n_clusters'].mean()
+            plt.plot(threshold_clusters.index, threshold_clusters.values,
+                     marker='s', label=f'{model}', linewidth=2, markersize=6)
+
+        plt.xlabel('Height Threshold')
+        plt.ylabel('Average Number of Clusters')
+        plt.title('Elbow Analysis: Threshold vs Clusters')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+
         plt.tight_layout()
-        plt.savefig(viz_dir / 'clustering_quality_overview.png', dpi=300, bbox_inches='tight')
+        plt.savefig(viz_dir / 'comprehensive_clustering_analysis.png', dpi=300, bbox_inches='tight')
         plt.close()
+
+        # 2. Cohesion and Separation Analysis (if data available)
+        cohesion_data = df.dropna(subset=['cohesion', 'separation'])
+        if not cohesion_data.empty:
+            plt.figure(figsize=(14, 6))
+
+            plt.subplot(1, 2, 1)
+            cohesion_data.boxplot(column='cohesion', by='model_type', ax=plt.gca())
+            plt.title('Intra-cluster Cohesion by Model')
+            plt.suptitle('')
+            plt.xlabel('Model Type')
+            plt.ylabel('Cohesion')
+
+            plt.subplot(1, 2, 2)
+            cohesion_data.boxplot(column='separation', by='model_type', ax=plt.gca())
+            plt.title('Inter-cluster Separation by Model')
+            plt.suptitle('')
+            plt.xlabel('Model Type')
+            plt.ylabel('Separation')
+
+            plt.tight_layout()
+            plt.savefig(viz_dir / 'cohesion_separation_analysis.png', dpi=300, bbox_inches='tight')
+            plt.close()
+
+        # 3. Enhanced correlation matrix with new metrics
+        plt.figure(figsize=(12, 10))
+        numeric_cols = ['silhouette_score', 'davies_bouldin_score', 'n_clusters',
+                        'avg_cluster_size', 'threshold']
+
+        # Add cohesion/separation if available
+        if not df['cohesion'].isna().all():
+            numeric_cols.extend(['cohesion', 'separation'])
+
+        correlation_matrix = df[numeric_cols].corr()
+
+        sns.heatmap(correlation_matrix, annot=True, cmap='RdBu_r', center=0,
+                    square=True, linewidths=0.5, fmt='.3f')
+        plt.title('Enhanced Clustering Metrics Correlation Matrix')
+        plt.tight_layout()
+        plt.savefig(viz_dir / 'enhanced_correlation_heatmap.png', dpi=300, bbox_inches='tight')
+        plt.close()
+
+        # 4. Model comparison radar chart
+        self._create_model_comparison_radar(df, viz_dir)
 
         # Additional detailed visualizations
         self._create_detailed_visualizations(df, viz_dir)
 
-        logger.info(f"Visualizations saved to {viz_dir}")
+        logger.info(f"Comprehensive visualizations saved to {viz_dir}")
+
+    def _create_model_comparison_radar(self, df, viz_dir):
+        try:
+            import matplotlib.pyplot as plt
+            from math import pi
+
+            fig, ax = plt.subplots(figsize=(10, 10), subplot_kw=dict(projection='polar'))
+
+            # Metrics to compare (normalized to 0-1 scale)
+            metrics = ['silhouette_score', 'n_clusters', 'avg_cluster_size']
+            if not df['cohesion'].isna().all():
+                metrics.extend(['cohesion', 'separation'])
+
+            # Normalize Davies-Bouldin (invert and normalize)
+            df_normalized = df.copy()
+            df_normalized['davies_bouldin_normalized'] = 1 / (1 + df['davies_bouldin_score'])
+            metrics.append('davies_bouldin_normalized')
+
+            # Calculate angles for radar chart
+            angles = [n / float(len(metrics)) * 2 * pi for n in range(len(metrics))]
+            angles += angles[:1]  # Complete the circle
+
+            # Plot for each model
+            colors = ['blue', 'red', 'green', 'orange']
+            for i, model in enumerate(df['model_type'].unique()):
+                model_data = df_normalized[df_normalized['model_type'] == model]
+
+                # Calculate mean values for each metric
+                values = []
+                for metric in metrics:
+                    if metric in model_data.columns:
+                        # Normalize to 0-1 scale
+                        metric_values = model_data[metric].dropna()
+                        if len(metric_values) > 0:
+                            normalized = (metric_values.mean() - metric_values.min()) / (
+                                        metric_values.max() - metric_values.min() + 1e-10)
+                            values.append(normalized)
+                        else:
+                            values.append(0)
+                    else:
+                        values.append(0)
+
+                values += values[:1]  # Complete the circle
+
+                # Plot
+                ax.plot(angles, values, 'o-', linewidth=2, label=model, color=colors[i % len(colors)])
+                ax.fill(angles, values, alpha=0.25, color=colors[i % len(colors)])
+
+            # Add labels
+            ax.set_xticks(angles[:-1])
+            ax.set_xticklabels([m.replace('_', ' ').title() for m in metrics])
+            ax.set_ylim(0, 1)
+            ax.set_title('Model Performance Comparison (Normalized Metrics)', size=16, y=1.1)
+            ax.legend(loc='upper right', bbox_to_anchor=(1.2, 1.0))
+
+            plt.tight_layout()
+            plt.savefig(viz_dir / 'model_comparison_radar.png', dpi=300, bbox_inches='tight')
+            plt.close()
+
+        except Exception as e:
+            logger.error(f"Error creating radar chart: {e}")
+            # Create simple bar chart fallback
+            self._create_model_comparison_bars(df, viz_dir)
+
+    def _create_model_comparison_bars(self, df, viz_dir):
+        plt.figure(figsize=(14, 8))
+
+        metrics = ['silhouette_score', 'n_clusters', 'avg_cluster_size']
+        if not df['cohesion'].isna().all():
+            metrics.extend(['cohesion', 'separation'])
+
+        models = df['model_type'].unique()
+        x = np.arange(len(metrics))
+        width = 0.35
+
+        for i, model in enumerate(models):
+            model_data = df[df['model_type'] == model]
+            values = [model_data[metric].mean() for metric in metrics]
+
+            plt.bar(x + i * width, values, width, label=model, alpha=0.8)
+
+        plt.xlabel('Metrics')
+        plt.ylabel('Average Values')
+        plt.title('Model Performance Comparison')
+        plt.xticks(x + width / 2, [m.replace('_', ' ').title() for m in metrics])
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(viz_dir / 'model_comparison_bars.png', dpi=300, bbox_inches='tight')
+        plt.close()
 
     def _create_detailed_visualizations(self, df, viz_dir):
         # Correlation heatmap
@@ -542,6 +853,7 @@ class SystematicTester:
             plt.tight_layout()
             plt.savefig(viz_dir / 'performance_by_dataset.png', dpi=300, bbox_inches='tight')
             plt.close()
+
 
     def generate_report(self):
         logger.info("Generating evaluation report...")
@@ -605,29 +917,3 @@ class SystematicTester:
 
         logger.info(f"Evaluation report saved to {report_file}")
         return report
-
-
-if __name__ == "__main__":
-    tester = SystematicTester()
-
-    csv_files = [
-        "ChatGPT.csv",
-        "Claude_by_Anthropic.csv",
-        "DeepSeek_-_AI_Assistant.csv"
-    ]
-
-    configurations = tester.run_full_pipeline(
-        csv_files=csv_files,
-        model_types=['tfrex'],
-        sample_sizes=[500, 1000],
-        selection_strategies=['balanced', 'silhouette']
-    )
-
-    evaluation_results = tester.evaluate_clustering_quality()
-
-    tester.generate_visualizations()
-
-    report = tester.generate_report()
-
-    print(f"Evaluation complete! Session ID: {tester.session_id}")
-    print(f"Results saved in: {tester.results_dir}")
