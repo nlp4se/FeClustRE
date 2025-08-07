@@ -450,36 +450,20 @@ class SystematicTester:
 
             cluster_sizes = [len(features) for features in clusters.values()]
 
-            # Cohesion: inverse of average cluster size variance (smaller clusters = higher cohesion)
+            # Cohesion: inverse of average cluster size variance
             cohesion = 1.0 / (1.0 + np.var(cluster_sizes))
 
-            # Separation: based on feature overlap between clusters
-            all_features = set()
-            for features in clusters.values():
-                all_features.update(features)
-
-            overlap_count = 0
-            total_comparisons = 0
-            cluster_lists = list(clusters.values())
-
-            for i in range(len(cluster_lists)):
-                for j in range(i + 1, len(cluster_lists)):
-                    set_i = set(cluster_lists[i])
-                    set_j = set(cluster_lists[j])
-                    overlap = len(set_i.intersection(set_j))
-                    overlap_count += overlap
-                    total_comparisons += 1
-
-            # Separation: inverse of average overlap (less overlap = better separation)
-            avg_overlap = overlap_count / total_comparisons if total_comparisons > 0 else 0
-            separation = 1.0 / (1.0 + avg_overlap)
+            # Separation measure how distinct clusters are
+            # Ratio of number of clusters to total features
+            total_features = sum(cluster_sizes)
+            n_clusters = len(clusters)
+            separation = n_clusters / np.sqrt(total_features)  # More clusters = better separation
 
             return float(cohesion), float(separation)
 
         except Exception as e:
             logger.error(f"Error calculating cohesion/separation: {e}")
             return None, None
-
     def _analyze_threshold_evolution(self, metrics_df):
         threshold_analysis = {}
 
@@ -553,13 +537,17 @@ class SystematicTester:
         viz_dir = self.results_dir / f"visualizations_{self.session_id}"
         viz_dir.mkdir(exist_ok=True)
 
-        # Collect metrics data
+        # Collect metrics data - TWO SEPARATE COLLECTIONS
         all_configs = self.session_data.get('apps_processed', {})
-        internal_metrics = []
+
+        all_candidates_metrics = []
+        selected_metrics = []
 
         for config_key, config in all_configs.items():
             app_results = config.get('processing_results', {}).get('results', {})
+            best_selections = config.get('best_selections', {})
 
+            # Collect ALL candidates for threshold analysis (no strategy needed)
             for app_name, result in app_results.items():
                 candidates = result.get('clustering_results', {}).get('candidates', [])
 
@@ -571,7 +559,7 @@ class SystematicTester:
                     # Calculate cohesion and separation
                     cohesion, separation = self._calculate_cohesion_separation(clustering)
 
-                    internal_metrics.append({
+                    all_candidates_metrics.append({
                         'csv_file': Path(config['csv_file']).stem,
                         'app_name': app_name,
                         'model_type': config['model_type'],
@@ -584,190 +572,387 @@ class SystematicTester:
                         'separation': separation
                     })
 
-        df = pd.DataFrame(internal_metrics)
+            for app_name, selection in best_selections.items():
+                candidate = selection['candidate']
+                summary = candidate.get('summary', {})
+                metrics = summary.get('metrics', {})
+                clustering = candidate.get('clustering', {})
 
-        if df.empty:
+                cohesion, separation = self._calculate_cohesion_separation(clustering)
+
+                selected_metrics.append({
+                    'csv_file': Path(config['csv_file']).stem,
+                    'app_name': app_name,
+                    'model_type': config['model_type'],
+                    'selection_strategy': config.get('selection_strategy', 'unknown'),
+                    'threshold': summary.get('threshold', 0),
+                    'silhouette_score': metrics.get('silhouette_score', 0),
+                    'davies_bouldin_score': metrics.get('davies_bouldin_score', float('inf')),
+                    'n_clusters': summary.get('n_clusters', 0),
+                    'avg_cluster_size': summary.get('avg_cluster_size', 0),
+                    'cohesion': cohesion,
+                    'separation': separation,
+                    'selection_score': selection.get('score', 0)
+                })
+
+        # Create two dataframes
+        df_all = pd.DataFrame(all_candidates_metrics)
+        df_selected = pd.DataFrame(selected_metrics)
+
+        if df_all.empty and df_selected.empty:
             logger.warning("No data available for visualization")
             return
 
         # Filter out infinite values
-        df = df[df['davies_bouldin_score'] != float('inf')]
+        df_all = df_all[df_all['davies_bouldin_score'] != float('inf')]
+        df_selected = df_selected[df_selected['davies_bouldin_score'] != float('inf')]
+
+        # Add model_strategy column to selected data only
+        if not df_selected.empty:
+            df_selected['model_strategy'] = df_selected['model_type'] + '_' + df_selected['selection_strategy']
 
         plt.style.use('seaborn-v0_8')
 
-        # 1. Main clustering quality overview (2x3 grid)
-        plt.figure(figsize=(16, 12))
+        colors = {'transfeatex': 'blue', 't-frex': 'red', 'tfrex': 'green'}
+        markers = {'balanced': 'o', 'silhouette': 's', 'conservative': '^', 'unknown': 'x'}
+        linestyles = {'balanced': '-', 'silhouette': '--', 'conservative': ':', 'unknown': '-.'}
 
-        # Silhouette vs Davies-Bouldin scatter plot by model type
-        plt.subplot(2, 3, 1)
-        for model in df['model_type'].unique():
-            model_data = df[df['model_type'] == model]
-            plt.scatter(model_data['silhouette_score'], model_data['davies_bouldin_score'],
-                        label=model, alpha=0.7, s=60)
 
-        plt.xlabel('Silhouette Score (higher is better)')
-        plt.ylabel('Davies-Bouldin Score (lower is better)')
-        plt.title('Clustering Quality: Silhouette vs Davies-Bouldin')
-        plt.legend()
-        plt.grid(True, alpha=0.3)
-
-        # Threshold evolution with elbow detection
-        plt.subplot(2, 3, 2)
-        for model in df['model_type'].unique():
-            model_data = df[df['model_type'] == model]
+        # 1. Threshold Evolution (ALL candidates - shows natural clustering behavior)
+        plt.figure(figsize=(10, 8))
+        for model in df_all['model_type'].unique():
+            model_data = df_all[df_all['model_type'] == model]
             threshold_avg = model_data.groupby('threshold')['silhouette_score'].mean()
             plt.plot(threshold_avg.index, threshold_avg.values,
-                     marker='o', label=f'{model}', linewidth=2, markersize=6)
+                     marker='o', label=model,
+                     color=colors.get(model, 'gray'),
+                     linewidth=2, markersize=6)
 
-            # Mark potential elbow point
+            # Mark optimal threshold
             if len(threshold_avg) >= 3:
                 optimal_idx = threshold_avg.values.argmax()
                 plt.axvline(x=threshold_avg.index[optimal_idx],
-                            linestyle='--', alpha=0.5,
-                            label=f'{model} optimal')
+                            linestyle='--', alpha=0.3, color=colors.get(model, 'gray'))
 
         plt.xlabel('Height Threshold')
         plt.ylabel('Average Silhouette Score')
-        plt.title('Threshold Evolution & Optimal Points')
+        plt.title('Threshold Evolution by Model (All Candidates)')
         plt.legend()
         plt.grid(True, alpha=0.3)
+        plt.savefig(viz_dir / 'threshold_evolution_all_candidates.png', dpi=300, bbox_inches='tight')
+        plt.close()
 
-        # Cohesion vs Separation analysis
-        plt.subplot(2, 3, 3)
-        cohesion_data = df.dropna(subset=['cohesion', 'separation'])
-        if not cohesion_data.empty:
-            for model in cohesion_data['model_type'].unique():
-                model_data = cohesion_data[cohesion_data['model_type'] == model]
-                plt.scatter(model_data['cohesion'], model_data['separation'],
-                            label=model, alpha=0.7, s=60)
-
-            plt.xlabel('Intra-cluster Cohesion (higher is better)')
-            plt.ylabel('Inter-cluster Separation (higher is better)')
-            plt.title('Cohesion vs Separation Analysis')
-            plt.legend()
-            plt.grid(True, alpha=0.3)
-        else:
-            plt.text(0.5, 0.5, 'No cohesion/separation data available',
-                     ha='center', va='center', transform=plt.gca().transAxes)
-
-        # Number of clusters distribution
-        plt.subplot(2, 3, 4)
-        df.boxplot(column='n_clusters', by='model_type', ax=plt.gca())
-        plt.title('Number of Clusters Distribution by Model')
-        plt.suptitle('')  # Remove automatic suptitle
-        plt.xlabel('Model Type')
-        plt.ylabel('Number of Clusters')
-
-        # Cluster size distribution
-        plt.subplot(2, 3, 5)
-        df.boxplot(column='avg_cluster_size', by='model_type', ax=plt.gca())
-        plt.title('Average Cluster Size Distribution by Model')
-        plt.suptitle('')  # Remove automatic suptitle
-        plt.xlabel('Model Type')
-        plt.ylabel('Average Cluster Size')
-
-        # Threshold vs Number of clusters (elbow plot)
-        plt.subplot(2, 3, 6)
-        for model in df['model_type'].unique():
-            model_data = df[df['model_type'] == model]
+        # 2. Elbow Analysis (ALL candidates)
+        plt.figure(figsize=(10, 8))
+        for model in df_all['model_type'].unique():
+            model_data = df_all[df_all['model_type'] == model]
             threshold_clusters = model_data.groupby('threshold')['n_clusters'].mean()
             plt.plot(threshold_clusters.index, threshold_clusters.values,
-                     marker='s', label=f'{model}', linewidth=2, markersize=6)
+                     marker='s', label=model,
+                     color=colors.get(model, 'gray'),
+                     linewidth=2, markersize=6)
 
         plt.xlabel('Height Threshold')
         plt.ylabel('Average Number of Clusters')
-        plt.title('Elbow Analysis: Threshold vs Clusters')
+        plt.title('Elbow Analysis: Threshold vs Clusters by Model')
         plt.legend()
         plt.grid(True, alpha=0.3)
-
-        plt.tight_layout()
-        plt.savefig(viz_dir / 'comprehensive_clustering_analysis.png', dpi=300, bbox_inches='tight')
+        plt.savefig(viz_dir / 'threshold_vs_clusters_all_candidates.png', dpi=300, bbox_inches='tight')
         plt.close()
 
-        # 2. Cohesion and Separation Analysis (if data available)
-        cohesion_data = df.dropna(subset=['cohesion', 'separation'])
-        if not cohesion_data.empty:
+        if not df_selected.empty:
+            # 3. Silhouette vs Davies-Bouldin (SELECTED only)
+            plt.figure(figsize=(12, 8))
+            for model in df_selected['model_type'].unique():
+                for strategy in df_selected['selection_strategy'].unique():
+                    model_data = df_selected[(df_selected['model_type'] == model) &
+                                             (df_selected['selection_strategy'] == strategy)]
+                    if not model_data.empty:
+                        plt.scatter(model_data['silhouette_score'], model_data['davies_bouldin_score'],
+                                    label=f'{model}_{strategy}',
+                                    alpha=0.7,
+                                    s=80,
+                                    color=colors.get(model, 'gray'),
+                                    marker=markers.get(strategy, 'o'))
+
+            plt.xlabel('Silhouette Score (higher is better)')
+            plt.ylabel('Davies-Bouldin Score (lower is better)')
+            plt.title('Clustering Quality: Selected Candidates by Model and Strategy')
+            plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+            plt.grid(True, alpha=0.3)
+            plt.tight_layout()
+            plt.savefig(viz_dir / 'silhouette_vs_davies_bouldin_selected.png', dpi=300, bbox_inches='tight')
+            plt.close()
+
+            # 4. Cohesion vs Separation (SELECTED only)
+            plt.figure(figsize=(12, 8))
+            cohesion_data = df_selected.dropna(subset=['cohesion', 'separation'])
+            if not cohesion_data.empty:
+                for model in cohesion_data['model_type'].unique():
+                    for strategy in cohesion_data['selection_strategy'].unique():
+                        model_data = cohesion_data[(cohesion_data['model_type'] == model) &
+                                                   (cohesion_data['selection_strategy'] == strategy)]
+                        if not model_data.empty:
+                            plt.scatter(model_data['cohesion'], model_data['separation'],
+                                        label=f'{model}_{strategy}',
+                                        alpha=0.7,
+                                        s=80,
+                                        color=colors.get(model, 'gray'),
+                                        marker=markers.get(strategy, 'o'))
+
+                plt.xlabel('Intra-cluster Cohesion (higher is better)')
+                plt.ylabel('Inter-cluster Separation (higher is better)')
+                plt.title('Cohesion vs Separation: Selected Candidates by Model and Strategy')
+                plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+                plt.grid(True, alpha=0.3)
+            plt.tight_layout()
+            plt.savefig(viz_dir / 'cohesion_vs_separation_selected.png', dpi=300, bbox_inches='tight')
+            plt.close()
+
+            # 5. Number of clusters distribution (SELECTED)
+            plt.figure(figsize=(12, 8))
+            df_selected.boxplot(column='n_clusters', by='model_strategy', ax=plt.gca())
+            plt.title('Number of Clusters: Selected Candidates by Model-Strategy')
+            plt.suptitle('')
+            plt.xlabel('Model_Strategy')
+            plt.ylabel('Number of Clusters')
+            plt.xticks(rotation=45)
+            plt.tight_layout()
+            plt.savefig(viz_dir / 'clusters_distribution_selected.png', dpi=300, bbox_inches='tight')
+            plt.close()
+
+            # 6. Average cluster size distribution (SELECTED)
+            plt.figure(figsize=(12, 8))
+            df_selected.boxplot(column='avg_cluster_size', by='model_strategy', ax=plt.gca())
+            plt.title('Average Cluster Size: Selected Candidates by Model-Strategy')
+            plt.suptitle('')
+            plt.xlabel('Model_Strategy')
+            plt.ylabel('Average Cluster Size')
+            plt.xticks(rotation=45)
+            plt.tight_layout()
+            plt.savefig(viz_dir / 'cluster_size_distribution_selected.png', dpi=300, bbox_inches='tight')
+            plt.close()
+
+            # 7. Strategy Performance Comparison
             plt.figure(figsize=(14, 6))
 
             plt.subplot(1, 2, 1)
-            cohesion_data.boxplot(column='cohesion', by='model_type', ax=plt.gca())
-            plt.title('Intra-cluster Cohesion by Model')
-            plt.suptitle('')
-            plt.xlabel('Model Type')
-            plt.ylabel('Cohesion')
+            strategy_performance = df_selected.groupby('selection_strategy')['silhouette_score'].mean().sort_values()
+            strategy_performance.plot(kind='barh', color='steelblue')
+            plt.xlabel('Average Silhouette Score')
+            plt.ylabel('Selection Strategy')
+            plt.title('Strategy Performance (Averaged Across Models)')
+            plt.grid(True, alpha=0.3)
 
             plt.subplot(1, 2, 2)
-            cohesion_data.boxplot(column='separation', by='model_type', ax=plt.gca())
-            plt.title('Inter-cluster Separation by Model')
-            plt.suptitle('')
-            plt.xlabel('Model Type')
-            plt.ylabel('Separation')
+            model_performance = df_selected.groupby('model_type')['silhouette_score'].mean().sort_values()
+            model_performance.plot(kind='barh', color='coral')
+            plt.xlabel('Average Silhouette Score')
+            plt.ylabel('Model Type')
+            plt.title('Model Performance (Averaged Across Strategies)')
+            plt.grid(True, alpha=0.3)
 
             plt.tight_layout()
-            plt.savefig(viz_dir / 'cohesion_separation_analysis.png', dpi=300, bbox_inches='tight')
+            plt.savefig(viz_dir / 'strategy_model_comparison.png', dpi=300, bbox_inches='tight')
             plt.close()
 
-        # 3. Enhanced correlation matrix with new metrics
-        plt.figure(figsize=(12, 10))
+            # 8. Heatmap of model-strategy performance
+            plt.figure(figsize=(10, 8))
+            pivot_table = df_selected.pivot_table(values='silhouette_score',
+                                                  index='model_type',
+                                                  columns='selection_strategy',
+                                                  aggfunc='mean')
+            sns.heatmap(pivot_table, annot=True, fmt='.3f', cmap='viridis',
+                        cbar_kws={'label': 'Silhouette Score'})
+            plt.title('Model-Strategy Performance Heatmap (Selected Candidates)')
+            plt.ylabel('Model Type')
+            plt.xlabel('Selection Strategy')
+            plt.tight_layout()
+            plt.savefig(viz_dir / 'model_strategy_heatmap.png', dpi=300, bbox_inches='tight')
+            plt.close()
+
+        # 9. Correlation matrices for both datasets
+        plt.figure(figsize=(16, 7))
+
+        # Correlation for all candidates
+        plt.subplot(1, 2, 1)
         numeric_cols = ['silhouette_score', 'davies_bouldin_score', 'n_clusters',
                         'avg_cluster_size', 'threshold']
-
-        # Add cohesion/separation if available
-        if not df['cohesion'].isna().all():
+        if not df_all['cohesion'].isna().all():
             numeric_cols.extend(['cohesion', 'separation'])
 
-        correlation_matrix = df[numeric_cols].corr()
-
+        correlation_matrix = df_all[numeric_cols].corr()
         sns.heatmap(correlation_matrix, annot=True, cmap='RdBu_r', center=0,
                     square=True, linewidths=0.5, fmt='.3f')
-        plt.title('Enhanced Clustering Metrics Correlation Matrix')
+        plt.title('Correlation Matrix: All Candidates')
+
+        # Correlation for selected candidates
+        if not df_selected.empty:
+            plt.subplot(1, 2, 2)
+            correlation_matrix_selected = df_selected[numeric_cols].corr()
+            sns.heatmap(correlation_matrix_selected, annot=True, cmap='RdBu_r', center=0,
+                        square=True, linewidths=0.5, fmt='.3f')
+            plt.title('Correlation Matrix: Selected Candidates')
+
         plt.tight_layout()
-        plt.savefig(viz_dir / 'enhanced_correlation_heatmap.png', dpi=300, bbox_inches='tight')
+        plt.savefig(viz_dir / 'correlation_matrices.png', dpi=300, bbox_inches='tight')
         plt.close()
 
-        # 4. Model comparison radar chart
-        self._create_model_comparison_radar(df, viz_dir)
+        # 10. Model comparison radar chart (selected candidates only)
+        if not df_selected.empty:
+            self._create_model_strategy_comparison_radar(df_selected, viz_dir)
 
-        # Additional detailed visualizations
-        self._create_detailed_visualizations(df, viz_dir)
+        # 11. Additional detailed visualizations
+        self._create_detailed_visualizations_with_strategies(df_all, df_selected, viz_dir)
 
         logger.info(f"Comprehensive visualizations saved to {viz_dir}")
 
-    def _create_model_comparison_radar(self, df, viz_dir):
+    def _create_detailed_visualizations_with_strategies(self, df_all, df_selected, viz_dir):
+        plt.figure(figsize=(14, 6))
+
+        plt.subplot(1, 2, 1)
+        df_all['threshold'].hist(bins=20, alpha=0.7, label='All Candidates', color='blue')
+        if not df_selected.empty:
+            df_selected['threshold'].hist(bins=20, alpha=0.7, label='Selected Candidates', color='red')
+        plt.xlabel('Threshold')
+        plt.ylabel('Frequency')
+        plt.title('Threshold Distribution: All vs Selected')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+
+        plt.subplot(1, 2, 2)
+        df_all.boxplot(column='silhouette_score', by='model_type', ax=plt.gca())
+        plt.title('Silhouette Score Distribution by Model (All Candidates)')
+        plt.suptitle('')
+        plt.xlabel('Model Type')
+        plt.ylabel('Silhouette Score')
+
+        plt.tight_layout()
+        plt.savefig(viz_dir / 'threshold_distribution_comparison.png', dpi=300, bbox_inches='tight')
+        plt.close()
+
+        # Strategy effectiveness visualization (if selected data exists)
+        if not df_selected.empty:
+            plt.figure(figsize=(12, 8))
+
+            # Create a scatter plot showing selection score vs silhouette score
+            for strategy in df_selected['selection_strategy'].unique():
+                strategy_data = df_selected[df_selected['selection_strategy'] == strategy]
+                plt.scatter(strategy_data['selection_score'],
+                            strategy_data['silhouette_score'],
+                            label=strategy, alpha=0.6, s=50)
+
+            plt.xlabel('Selection Score (Strategy-specific)')
+            plt.ylabel('Silhouette Score')
+            plt.title('Strategy Effectiveness: Selection Score vs Silhouette Score')
+            plt.legend()
+            plt.grid(True, alpha=0.3)
+            plt.tight_layout()
+            plt.savefig(viz_dir / 'strategy_effectiveness.png', dpi=300, bbox_inches='tight')
+            plt.close()
+
+            # Performance by dataset
+            if len(df_selected['csv_file'].unique()) > 1:
+                plt.figure(figsize=(14, 10))
+
+                # Create subplots for different metrics
+                fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+
+                # Silhouette by dataset and strategy
+                ax = axes[0, 0]
+                df_selected.boxplot(column='silhouette_score',
+                                    by=['csv_file', 'selection_strategy'], ax=ax)
+                ax.set_title('Silhouette Score by Dataset and Strategy')
+                ax.set_xlabel('')
+                plt.sca(ax)
+                plt.xticks(rotation=45, ha='right')
+
+                # Number of clusters by dataset and strategy
+                ax = axes[0, 1]
+                df_selected.boxplot(column='n_clusters',
+                                    by=['csv_file', 'selection_strategy'], ax=ax)
+                ax.set_title('Number of Clusters by Dataset and Strategy')
+                ax.set_xlabel('')
+                plt.sca(ax)
+                plt.xticks(rotation=45, ha='right')
+
+                # Cohesion by dataset and model
+                ax = axes[1, 0]
+                cohesion_data = df_selected.dropna(subset=['cohesion'])
+                if not cohesion_data.empty:
+                    cohesion_data.boxplot(column='cohesion',
+                                          by=['csv_file', 'model_type'], ax=ax)
+                    ax.set_title('Cohesion by Dataset and Model')
+                ax.set_xlabel('')
+                plt.sca(ax)
+                plt.xticks(rotation=45, ha='right')
+
+                # Separation by dataset and model
+                ax = axes[1, 1]
+                separation_data = df_selected.dropna(subset=['separation'])
+                if not separation_data.empty:
+                    separation_data.boxplot(column='separation',
+                                            by=['csv_file', 'model_type'], ax=ax)
+                    ax.set_title('Separation by Dataset and Model')
+                ax.set_xlabel('')
+                plt.sca(ax)
+                plt.xticks(rotation=45, ha='right')
+
+                plt.suptitle('')
+                plt.tight_layout()
+                plt.savefig(viz_dir / 'performance_by_dataset_detailed.png', dpi=300, bbox_inches='tight')
+                plt.close()
+    def _create_model_strategy_comparison_radar(self, df, viz_dir):
         try:
             import matplotlib.pyplot as plt
             from math import pi
 
-            fig, ax = plt.subplots(figsize=(10, 10), subplot_kw=dict(projection='polar'))
+            fig, ax = plt.subplots(figsize=(12, 10), subplot_kw=dict(projection='polar'))
 
-            # Metrics to compare (normalized to 0-1 scale)
+            # Metrics to compare
             metrics = ['silhouette_score', 'n_clusters', 'avg_cluster_size']
             if not df['cohesion'].isna().all():
                 metrics.extend(['cohesion', 'separation'])
 
-            # Normalize Davies-Bouldin (invert and normalize)
+            # Normalize Davies-Bouldin
             df_normalized = df.copy()
             df_normalized['davies_bouldin_normalized'] = 1 / (1 + df['davies_bouldin_score'])
             metrics.append('davies_bouldin_normalized')
 
-            # Calculate angles for radar chart
+            # Calculate angles
             angles = [n / float(len(metrics)) * 2 * pi for n in range(len(metrics))]
-            angles += angles[:1]  # Complete the circle
+            angles += angles[:1]
 
-            # Plot for each model
-            colors = ['blue', 'red', 'green', 'orange']
-            for i, model in enumerate(df['model_type'].unique()):
-                model_data = df_normalized[df_normalized['model_type'] == model]
+            # Colors for model-strategy combinations
+            color_map = {
+                'transfeatex_balanced': 'blue',
+                'transfeatex_silhouette': 'lightblue',
+                'transfeatex_conservative': 'darkblue',
+                't-frex_balanced': 'red',
+                't-frex_silhouette': 'lightcoral',
+                't-frex_conservative': 'darkred',
+                'tfrex_balanced': 'green',
+                'tfrex_silhouette': 'lightgreen',
+                'tfrex_conservative': 'darkgreen'
+            }
+
+            # Plot for each model-strategy combination
+            for model_strategy in df['model_strategy'].unique():
+                model_data = df_normalized[df_normalized['model_strategy'] == model_strategy]
 
                 # Calculate mean values for each metric
                 values = []
                 for metric in metrics:
                     if metric in model_data.columns:
-                        # Normalize to 0-1 scale
                         metric_values = model_data[metric].dropna()
                         if len(metric_values) > 0:
-                            normalized = (metric_values.mean() - metric_values.min()) / (
-                                        metric_values.max() - metric_values.min() + 1e-10)
+                            # Normalize to 0-1 scale
+                            min_val = df_normalized[metric].min()
+                            max_val = df_normalized[metric].max()
+                            if max_val > min_val:
+                                normalized = (metric_values.mean() - min_val) / (max_val - min_val)
+                            else:
+                                normalized = 0.5
                             values.append(normalized)
                         else:
                             values.append(0)
@@ -777,51 +962,53 @@ class SystematicTester:
                 values += values[:1]  # Complete the circle
 
                 # Plot
-                ax.plot(angles, values, 'o-', linewidth=2, label=model, color=colors[i % len(colors)])
-                ax.fill(angles, values, alpha=0.25, color=colors[i % len(colors)])
+                ax.plot(angles, values, 'o-', linewidth=2,
+                        label=model_strategy,
+                        color=color_map.get(model_strategy, 'gray'))
+                ax.fill(angles, values, alpha=0.15,
+                        color=color_map.get(model_strategy, 'gray'))
 
             # Add labels
             ax.set_xticks(angles[:-1])
             ax.set_xticklabels([m.replace('_', ' ').title() for m in metrics])
             ax.set_ylim(0, 1)
-            ax.set_title('Model Performance Comparison (Normalized Metrics)', size=16, y=1.1)
-            ax.legend(loc='upper right', bbox_to_anchor=(1.2, 1.0))
+            ax.set_title('Model-Strategy Performance Comparison (Normalized)', size=16, y=1.1)
+            ax.legend(loc='upper left', bbox_to_anchor=(1.1, 1.0))
 
             plt.tight_layout()
-            plt.savefig(viz_dir / 'model_comparison_radar.png', dpi=300, bbox_inches='tight')
+            plt.savefig(viz_dir / 'model_strategy_comparison_radar.png', dpi=300, bbox_inches='tight')
             plt.close()
 
         except Exception as e:
             logger.error(f"Error creating radar chart: {e}")
-            # Create simple bar chart fallback
-            self._create_model_comparison_bars(df, viz_dir)
+            self._create_model_strategy_comparison_bars(df, viz_dir)
 
-    def _create_model_comparison_bars(self, df, viz_dir):
-        plt.figure(figsize=(14, 8))
+    def _create_model_strategy_comparison_bars(self, df, viz_dir):
+        plt.figure(figsize=(16, 8))
 
         metrics = ['silhouette_score', 'n_clusters', 'avg_cluster_size']
         if not df['cohesion'].isna().all():
             metrics.extend(['cohesion', 'separation'])
 
-        models = df['model_type'].unique()
+        model_strategies = sorted(df['model_strategy'].unique())
         x = np.arange(len(metrics))
-        width = 0.35
+        width = 0.8 / len(model_strategies)
 
-        for i, model in enumerate(models):
-            model_data = df[df['model_type'] == model]
+        for i, model_strategy in enumerate(model_strategies):
+            model_data = df[df['model_strategy'] == model_strategy]
             values = [model_data[metric].mean() for metric in metrics]
 
-            plt.bar(x + i * width, values, width, label=model, alpha=0.8)
+            plt.bar(x + i * width, values, width, label=model_strategy, alpha=0.8)
 
         plt.xlabel('Metrics')
         plt.ylabel('Average Values')
-        plt.title('Model Performance Comparison')
-        plt.xticks(x + width / 2, [m.replace('_', ' ').title() for m in metrics])
-        plt.legend()
+        plt.title('Model-Strategy Performance Comparison')
+        plt.xticks(x + width * len(model_strategies) / 2,
+                   [m.replace('_', ' ').title() for m in metrics])
+        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
         plt.tight_layout()
-        plt.savefig(viz_dir / 'model_comparison_bars.png', dpi=300, bbox_inches='tight')
+        plt.savefig(viz_dir / 'model_strategy_comparison_bars.png', dpi=300, bbox_inches='tight')
         plt.close()
-
     def _create_detailed_visualizations(self, df, viz_dir):
         # Correlation heatmap
         plt.figure(figsize=(10, 8))
@@ -853,7 +1040,6 @@ class SystematicTester:
             plt.tight_layout()
             plt.savefig(viz_dir / 'performance_by_dataset.png', dpi=300, bbox_inches='tight')
             plt.close()
-
 
     def generate_report(self):
         logger.info("Generating evaluation report...")
