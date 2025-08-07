@@ -1,8 +1,6 @@
 import argparse
 import sys
 from systematic_testing import SystematicTester
-import pandas as pd
-import matplotlib.pyplot as plt
 
 def mock_test():
     print("Running mock test...")
@@ -17,8 +15,8 @@ def mock_test():
     configurations = tester.run_full_pipeline(
         csv_files=csv_files,
         model_types=['transfeatex', 't-frex'],
-        sample_sizes=[100],
-        selection_strategies=['balanced']
+        sample_sizes=[100, 200, 500],
+        selection_strategies=['balanced', 'silhouette', 'conservative']
     )
 
     evaluation_results = tester.evaluate_clustering_quality()
@@ -78,15 +76,6 @@ def main():
             session_id = mock_test()
         elif args.mode == 'full':
             session_id = full_test()
-        elif args.mode == 'custom':
-            if not args.csv_files:
-                print("Error: --csv-files required for custom mode")
-                sys.exit(1)
-            session_id = custom_test(args.csv_files, args.models, args.samples, args.strategies)
-        elif args.mode == 'ablation':
-            results = ablation_study()
-            print("Ablation study complete!")
-            return
 
         print(f"\nTest completed successfully!")
         print(f"Session ID: {session_id}")
