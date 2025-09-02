@@ -37,15 +37,15 @@ def full_test():
         "../data/input/endpoint_1_process_reviews/ai_assistants/cleaned_data/Claude_by_Anthropic.csv",
         "../data/input/endpoint_1_process_reviews/ai_assistants/cleaned_data/DeepSeek_-_AI_Assistant.csv",
         "../data/input/endpoint_1_process_reviews/ai_assistants/cleaned_data/Google_Gemini.csv",
-        "../data/input/endpoint_1_process_reviews/ai_assistants/cleaned_data/Le_Chat_by_Mistral.csv",
+        "../data/input/endpoint_1_process_reviews/ai_assistants/cleaned_data/Le_Chat_by_Mistral_AI.csv",
         "../data/input/endpoint_1_process_reviews/ai_assistants/cleaned_data/Microsoft_Copilot.csv",
         "../data/input/endpoint_1_process_reviews/ai_assistants/cleaned_data/Perplexity_-_Ask_Anything.csv"
     ]
 
     configurations = tester.run_full_pipeline(
         csv_files=csv_files,
-        model_types=['tfrex', 'transfeatex'],
-        sample_sizes=[1000, 2000, 5000, 99999999],
+        model_types=['t-frex', 'transfeatex'],
+        sample_sizes=[1000, 2000, 5000, 50000],
         selection_strategies=['balanced', 'silhouette', 'conservative']
     )
 
