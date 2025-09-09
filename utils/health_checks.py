@@ -7,7 +7,7 @@ import os
 
 
 def check_transfeatex():
-    use_vpn = os.environ.get('TRANSFEATEX_USE_VPN', 'true').lower() == 'true'
+    use_vpn = False
 
     if use_vpn:
         endpoint = 'http://10.4.63.10:3004/extract-features'
