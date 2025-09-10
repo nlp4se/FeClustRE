@@ -37,9 +37,10 @@ class FeatureExtractor:
                     device=0 if torch.cuda.is_available() else -1
                 )
 
-            elif self.model_type == 'transfeatex':
+            if self.model_type == 'transfeatex':
                 self.model_name = "TransfeatEx (API)"
-                use_vpn = False
+                use_vpn = True
+                # TODO dont hardcode use config.py
                 if use_vpn:
                     self.transfeatex_endpoint = 'http://10.4.63.10:3004/extract-features'
                     logger.info("Configured TransfeatEx VPN endpoint.")
@@ -48,6 +49,12 @@ class FeatureExtractor:
                                                                'http://gessi-chatbots.essi.upc.edu:3004') + '/extract-features'
                     logger.info("Configured TransfeatEx original endpoint.")
 
+            if self.model_type == 'hybrid':
+                self.model_name = "T-FREX + TransfeatEx Hybrid"
+                self.tokenizer = AutoTokenizer.from_pretrained("quim-motger/t-frex-bert-base-uncased")
+                self.model = AutoModelForTokenClassification.from_pretrained("quim-motger/t-frex-bert-base-uncased")
+                self.ner_pipeline = pipeline("ner", model=self.model, tokenizer=self.tokenizer)
+                self.transfeatex_endpoint = 'http://10.4.63.10:3004/extract-features'
 
             else:
                 raise ValueError(f"Unsupported model type: {self.model_type}")
@@ -64,10 +71,25 @@ class FeatureExtractor:
     def extract_features(self, texts):
         if not texts:
             return []
+        if self.model_type == 'hybrid':
+            return self._extract_features_hybrid(texts)
         elif self.model_type == 'transfeatex':
             return self._extract_features_transfeatex(texts)
         else:
             return self._extract_features_tfrex(texts)
+
+    def _extract_features_hybrid(self, texts):
+        tfrex_features = self._extract_features_tfrex(texts)
+        transfeatex_features = self._extract_features_transfeatex(texts)
+
+        combined_features = []
+        for i in range(len(texts)):
+            t_feat = set(tfrex_features[i] if i < len(tfrex_features) else [])
+            tf_feat = set(transfeatex_features[i] if i < len(transfeatex_features) else [])
+            combined = list(t_feat.union(tf_feat))
+            combined_features.append(combined)
+
+        return combined_features
 
     def _extract_features_transfeatex(self, texts):
         all_features = []

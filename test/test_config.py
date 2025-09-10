@@ -14,8 +14,8 @@ def mock_test():
 
     configurations = tester.run_full_pipeline(
         csv_files=csv_files,
-        model_types=['transfeatex', 't-frex'],
-        sample_sizes=[100, 200, 500],
+        model_types=['transfeatex', 't-frex', 'hybrid'],
+        sample_sizes=[10, 20, 50],
         selection_strategies=['balanced', 'silhouette', 'conservative']
     )
 
@@ -44,9 +44,10 @@ def full_test():
 
     configurations = tester.run_full_pipeline(
         csv_files=csv_files,
-        model_types=['t-frex', 'transfeatex'],
+        model_types=['t-frex', 'transfeatex', 'hybrid'],
         sample_sizes=[1000, 2000, 5000, 50000],
         selection_strategies=['balanced', 'silhouette', 'conservative']
+
     )
 
     evaluation_results = tester.evaluate_clustering_quality()
