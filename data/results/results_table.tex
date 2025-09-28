@@ -1,0 +1,110 @@
+% EXPERIMENTAL SUMMARY STATISTICS
+% Total configurations tested: 72
+% Total app experiments: 504
+% Silhouette scores - Best: 0.504, Worst: 0.082, Avg: 0.197
+% Davies-Bouldin scores - Best: 0.4404558643986035, Worst: 1.8152170122420774, Avg: 0.9051450314559529
+% Processing times - Fastest: 0.0s, Slowest: 22231.3s, Avg: 429.3s
+
+
+\begin{table*}[htbp]
+\centering
+\caption{Comprehensive Experimental Results: Feature Clustering Performance Across Model Configurations}
+\label{tab:experimental_results}
+\footnotesize
+\begin{tabular}{|l|l|l|l|c|c|c|c|c|}
+\hline
+\textbf{Model} & \textbf{Embedding} & \textbf{Sample} & \textbf{Strategy} & \textbf{Exps} & \textbf{Silhouette} & \textbf{Davies-B} & \textbf{Clusters} & \textbf{Time (s)} \\
+\hline
+Hybrid & AllMiniLM & 1K & Balanced & 7 & 0.182$\pm$0.02 & 0.96 & 66.1 & 308.0 \\
+Hybrid & AllMiniLM & 1K & Conservative & 7 & 0.182$\pm$0.02 & 0.96 & 66.1 & 0.0 \\
+Hybrid & AllMiniLM & 1K & Silhouette & 7 & 0.182$\pm$0.02 & 0.96 & 66.1 & 0.0 \\
+Hybrid & AllMiniLM & 2K & Balanced & 7 & 0.185$\pm$0.02 & 0.96 & 87.7 & 559.7 \\
+Hybrid & AllMiniLM & 2K & Conservative & 7 & 0.185$\pm$0.02 & 0.96 & 87.7 & 0.0 \\
+Hybrid & AllMiniLM & 2K & Silhouette & 7 & 0.185$\pm$0.02 & 0.96 & 87.7 & 0.0 \\
+Hybrid & AllMiniLM & 5K & Balanced & 7 & 0.188$\pm$0.02 & 0.87 & 141.6 & 1115.9 \\
+Hybrid & AllMiniLM & 5K & Conservative & 7 & 0.188$\pm$0.02 & 0.87 & 141.6 & 0.0 \\
+Hybrid & AllMiniLM & 5K & Silhouette & 7 & 0.188$\pm$0.02 & 0.87 & 141.6 & 0.0 \\
+Hybrid & AllMiniLM & 50K & Balanced & 7 & 0.194$\pm$0.03 & 0.79 & 273.3 & 4133.9 \\
+Hybrid & AllMiniLM & 50K & Conservative & 7 & 0.194$\pm$0.03 & 0.79 & 273.3 & 0.0 \\
+Hybrid & AllMiniLM & 50K & Silhouette & 7 & 0.194$\pm$0.03 & 0.79 & 273.3 & 0.1 \\
+\hline
+Hybrid & Sentence-T5 & 1K & Balanced & 7 & 0.176$\pm$0.02 & 0.98 & 64.6 & 308.4 \\
+Hybrid & Sentence-T5 & 1K & Conservative & 7 & 0.176$\pm$0.02 & 0.98 & 64.6 & 0.0 \\
+Hybrid & Sentence-T5 & 1K & Silhouette & 7 & 0.176$\pm$0.02 & 0.98 & 64.6 & 0.0 \\
+Hybrid & Sentence-T5 & 2K & Balanced & 7 & 0.178$\pm$0.01 & 1.01 & 80.1 & 535.4 \\
+Hybrid & Sentence-T5 & 2K & Conservative & 7 & 0.178$\pm$0.01 & 1.01 & 80.1 & 0.0 \\
+Hybrid & Sentence-T5 & 2K & Silhouette & 7 & 0.178$\pm$0.01 & 1.01 & 80.1 & 0.0 \\
+Hybrid & Sentence-T5 & 5K & Balanced & 7 & 0.189$\pm$0.02 & 0.81 & 152.4 & 1220.7 \\
+Hybrid & Sentence-T5 & 5K & Conservative & 7 & 0.189$\pm$0.02 & 0.81 & 152.4 & 0.0 \\
+Hybrid & Sentence-T5 & 5K & Silhouette & 7 & 0.189$\pm$0.02 & 0.81 & 152.4 & 0.0 \\
+Hybrid & Sentence-T5 & 50K & Balanced & 7 & 0.194$\pm$0.03 & 0.76 & 300.7 & 4165.9 \\
+Hybrid & Sentence-T5 & 50K & Conservative & 7 & 0.194$\pm$0.03 & 0.76 & 300.7 & 0.0 \\
+Hybrid & Sentence-T5 & 50K & Silhouette & 7 & 0.194$\pm$0.03 & 0.76 & 300.7 & 0.1 \\
+\hline
+T-FREX & AllMiniLM & 1K & Balanced & 7 & 0.168$\pm$0.04 & 0.87 & 52.7 & 32.4 \\
+T-FREX & AllMiniLM & 1K & Conservative & 7 & 0.168$\pm$0.04 & 0.87 & 52.7 & 0.0 \\
+T-FREX & AllMiniLM & 1K & Silhouette & 7 & 0.168$\pm$0.04 & 0.87 & 52.7 & 0.0 \\
+T-FREX & AllMiniLM & 2K & Balanced & 7 & 0.178$\pm$0.04 & 0.91 & 69.4 & 53.6 \\
+T-FREX & AllMiniLM & 2K & Conservative & 7 & 0.178$\pm$0.04 & 0.91 & 69.4 & 0.0 \\
+T-FREX & AllMiniLM & 2K & Silhouette & 7 & 0.178$\pm$0.04 & 0.91 & 69.4 & 0.0 \\
+T-FREX & AllMiniLM & 5K & Balanced & 7 & 0.187$\pm$0.05 & 0.88 & 112.4 & 122.8 \\
+T-FREX & AllMiniLM & 5K & Conservative & 7 & 0.187$\pm$0.05 & 0.88 & 112.4 & 0.0 \\
+T-FREX & AllMiniLM & 5K & Silhouette & 7 & 0.187$\pm$0.05 & 0.88 & 112.4 & 0.1 \\
+T-FREX & AllMiniLM & 50K & Balanced & 7 & 0.189$\pm$0.05 & 0.87 & 226.6 & 439.9 \\
+T-FREX & AllMiniLM & 50K & Conservative & 7 & 0.189$\pm$0.05 & 0.87 & 226.6 & 0.1 \\
+T-FREX & AllMiniLM & 50K & Silhouette & 7 & 0.189$\pm$0.05 & 0.87 & 226.6 & 0.1 \\
+\hline
+T-FREX & Sentence-T5 & 1K & Balanced & 7 & 0.162$\pm$0.04 & 1.06 & 44.1 & 37.5 \\
+T-FREX & Sentence-T5 & 1K & Conservative & 7 & 0.162$\pm$0.04 & 1.06 & 44.1 & 0.0 \\
+T-FREX & Sentence-T5 & 1K & Silhouette & 7 & 0.162$\pm$0.04 & 1.06 & 44.1 & 0.0 \\
+T-FREX & Sentence-T5 & 2K & Balanced & 7 & 0.181$\pm$0.04 & 0.92 & 59.6 & 63.8 \\
+T-FREX & Sentence-T5 & 2K & Conservative & 7 & 0.181$\pm$0.04 & 0.92 & 59.6 & 0.0 \\
+T-FREX & Sentence-T5 & 2K & Silhouette & 7 & 0.181$\pm$0.04 & 0.92 & 59.6 & 0.0 \\
+T-FREX & Sentence-T5 & 5K & Balanced & 7 & 0.178$\pm$0.04 & 0.92 & 110.3 & 129.0 \\
+T-FREX & Sentence-T5 & 5K & Conservative & 7 & 0.178$\pm$0.04 & 0.92 & 110.3 & 0.0 \\
+T-FREX & Sentence-T5 & 5K & Silhouette & 7 & 0.178$\pm$0.04 & 0.92 & 110.3 & 0.0 \\
+T-FREX & Sentence-T5 & 50K & Balanced & 7 & 0.188$\pm$0.05 & 0.87 & 226.9 & 466.1 \\
+T-FREX & Sentence-T5 & 50K & Conservative & 7 & 0.188$\pm$0.05 & 0.87 & 226.9 & 0.1 \\
+T-FREX & Sentence-T5 & 50K & Silhouette & 7 & 0.188$\pm$0.05 & 0.87 & 226.9 & 0.0 \\
+\hline
+TransfeatEx & AllMiniLM & 1K & Balanced & 7 & 0.189$\pm$0.04 & 1.03 & 17.9 & 447.8 \\
+TransfeatEx & AllMiniLM & 1K & Conservative & 7 & 0.189$\pm$0.04 & 1.03 & 17.9 & 0.0 \\
+TransfeatEx & AllMiniLM & 1K & Silhouette & 7 & 0.189$\pm$0.04 & 1.03 & 17.9 & 0.0 \\
+TransfeatEx & AllMiniLM & 2K & Balanced & 7 & 0.200$\pm$0.04 & 0.96 & 19.1 & 734.1 \\
+TransfeatEx & AllMiniLM & 2K & Conservative & 7 & 0.200$\pm$0.04 & 0.96 & 19.1 & 0.0 \\
+TransfeatEx & AllMiniLM & 2K & Silhouette & 7 & 0.200$\pm$0.04 & 0.96 & 19.1 & 0.0 \\
+TransfeatEx & AllMiniLM & 5K & Balanced & 7 & 0.213$\pm$0.06 & 0.90 & 20.9 & 1534.8 \\
+TransfeatEx & AllMiniLM & 5K & Conservative & 7 & 0.213$\pm$0.06 & 0.90 & 20.9 & 0.0 \\
+TransfeatEx & AllMiniLM & 5K & Silhouette & 7 & 0.213$\pm$0.06 & 0.90 & 20.9 & 0.0 \\
+TransfeatEx & AllMiniLM & 50K & Balanced & 7 & 0.280$\pm$0.14 & 0.82 & 24.3 & 5918.1 \\
+TransfeatEx & AllMiniLM & 50K & Conservative & 7 & 0.280$\pm$0.14 & 0.82 & 24.3 & 0.0 \\
+TransfeatEx & AllMiniLM & 50K & Silhouette & 7 & 0.280$\pm$0.14 & 0.82 & 24.3 & 0.0 \\
+\hline
+TransfeatEx & Sentence-T5 & 1K & Balanced & 7 & 0.206$\pm$0.07 & 0.96 & 19.6 & 442.9 \\
+TransfeatEx & Sentence-T5 & 1K & Conservative & 7 & 0.206$\pm$0.07 & 0.96 & 19.6 & 0.0 \\
+TransfeatEx & Sentence-T5 & 1K & Silhouette & 7 & 0.206$\pm$0.07 & 0.96 & 19.6 & 0.0 \\
+TransfeatEx & Sentence-T5 & 2K & Balanced & 7 & 0.192$\pm$0.04 & 0.96 & 19.1 & 736.4 \\
+TransfeatEx & Sentence-T5 & 2K & Conservative & 7 & 0.192$\pm$0.04 & 0.96 & 19.1 & 0.0 \\
+TransfeatEx & Sentence-T5 & 2K & Silhouette & 7 & 0.192$\pm$0.04 & 0.96 & 19.1 & 0.0 \\
+TransfeatEx & Sentence-T5 & 5K & Balanced & 7 & 0.247$\pm$0.10 & 0.84 & 21.9 & 1509.3 \\
+TransfeatEx & Sentence-T5 & 5K & Conservative & 7 & 0.247$\pm$0.10 & 0.84 & 21.9 & 0.0 \\
+TransfeatEx & Sentence-T5 & 5K & Silhouette & 7 & 0.247$\pm$0.10 & 0.84 & 21.9 & 0.0 \\
+TransfeatEx & Sentence-T5 & 50K & Balanced & 7 & 0.281$\pm$0.14 & 0.82 & 24.4 & 5891.7 \\
+TransfeatEx & Sentence-T5 & 50K & Conservative & 7 & 0.281$\pm$0.14 & 0.82 & 24.4 & 0.0 \\
+TransfeatEx & Sentence-T5 & 50K & Silhouette & 7 & 0.281$\pm$0.14 & 0.82 & 24.4 & 0.0 \\
+\hline
+\end{tabular}
+\begin{tablenotes}
+\footnotesize
+\item \textbf{Model}: Feature extraction method (T-FREX, TransfeatEx, Hybrid)
+\item \textbf{Embedding}: Sentence embedding model (AllMiniLM-L6-v2, Sentence-T5)
+\item \textbf{Sample}: Dataset sample size (K=thousands, M=millions)
+\item \textbf{Strategy}: Clustering selection strategy (Balanced, Silhouette, Conservative)
+\item \textbf{Exps}: Number of app experiments per configuration
+\item \textbf{Silhouette}: Mean silhouette score ± standard deviation (higher better)
+\item \textbf{Davies-B}: Davies-Bouldin index (lower better, N/A if undefined)
+\item \textbf{Clusters}: Average number of clusters generated
+\item \textbf{Time}: Average processing time in seconds
+\end{tablenotes}
+\end{table*}
+
