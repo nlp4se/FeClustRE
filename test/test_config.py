@@ -59,11 +59,42 @@ def full_test():
     return tester.session_id
 
 
+def semantic_experiment():
+    print("Running semantic experiment...")
+    print("Configuration: Hybrid model, AllMini embeddings, maximum sample size, no review limits")
+
+    tester = SystematicTester()
+
+    csv_files = [
+        "../data/input/endpoint_1_process_reviews/ai_assistants/ChatGPT.csv",
+        "../data/input/endpoint_1_process_reviews/ai_assistants/Claude_by_Anthropic.csv",
+        "../data/input/endpoint_1_process_reviews/ai_assistants/DeepSeek_-_AI_Assistant.csv",
+        "../data/input/endpoint_1_process_reviews/ai_assistants/Google_Gemini.csv",
+        "../data/input/endpoint_1_process_reviews/ai_assistants/Le_Chat_by_Mistral_AI.csv",
+        "../data/input/endpoint_1_process_reviews/ai_assistants/Microsoft_Copilot.csv",
+        "../data/input/endpoint_1_process_reviews/ai_assistants/Perplexity_-_Ask_Anything.csv"
+    ]
+
+    configurations = tester.run_full_pipeline(
+        csv_files=csv_files,
+        model_types=['hybrid'],
+        embedding_types=['allmini'],
+        sample_sizes=[None],  # None means no limit - maximum available reviews
+        selection_strategies=['balanced']
+    )
+
+    evaluation_results = tester.evaluate_clustering_quality()
+    tester.generate_visualizations()
+    report = tester.generate_report()
+
+    print(f"Semantic experiment complete! Session: {tester.session_id}")
+    return tester.session_id
+
 
 def main():
     parser = argparse.ArgumentParser(description='Systematic Testing Framework for Feature Clustering')
     parser.add_argument('mode',
-                        choices=['mock', 'full'],
+                        choices=['mock', 'full', 'semantic'],
                         help='Test mode to run')
     parser.add_argument('--session-file', type=str, help='Session file to resume (for resume mode)')
     parser.add_argument('--csv-files', nargs='+', help='CSV files to process (for custom mode)')
@@ -78,6 +109,8 @@ def main():
             session_id = mock_test()
         elif args.mode == 'full':
             session_id = full_test()
+        elif args.mode == 'semantic':
+            session_id = semantic_experiment()
 
         print(f"\nTest completed successfully!")
         print(f"Session ID: {session_id}")
