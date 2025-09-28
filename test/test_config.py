@@ -8,8 +8,8 @@ def mock_test():
     tester = SystematicTester()
 
     csv_files = [
-        "../data/input/endpoint_1_process_reviews/ai_assistants/cleaned_data/ChatGPT.csv",
-        "../data/input/endpoint_1_process_reviews/ai_assistants/cleaned_data/Claude_by_Anthropic.csv",
+        "../data/input/endpoint_1_process_reviews/ai_assistants/ChatGPT.csv",
+        "../data/input/endpoint_1_process_reviews/ai_assistants/Claude_by_Anthropic.csv",
     ]
 
     configurations = tester.run_full_pipeline(
@@ -34,13 +34,13 @@ def full_test():
     tester = SystematicTester()
 
     csv_files = [
-        "../data/input/endpoint_1_process_reviews/ai_assistants/cleaned_data/ChatGPT.csv",
-        "../data/input/endpoint_1_process_reviews/ai_assistants/cleaned_data/Claude_by_Anthropic.csv",
-        "../data/input/endpoint_1_process_reviews/ai_assistants/cleaned_data/DeepSeek_-_AI_Assistant.csv",
-        "../data/input/endpoint_1_process_reviews/ai_assistants/cleaned_data/Google_Gemini.csv",
-        "../data/input/endpoint_1_process_reviews/ai_assistants/cleaned_data/Le_Chat_by_Mistral_AI.csv",
-        "../data/input/endpoint_1_process_reviews/ai_assistants/cleaned_data/Microsoft_Copilot.csv",
-        "../data/input/endpoint_1_process_reviews/ai_assistants/cleaned_data/Perplexity_-_Ask_Anything.csv"
+        "../data/input/endpoint_1_process_reviews/ai_assistants/ChatGPT.csv",
+        "../data/input/endpoint_1_process_reviews/ai_assistants/Claude_by_Anthropic.csv",
+        "../data/input/endpoint_1_process_reviews/ai_assistants/DeepSeek_-_AI_Assistant.csv",
+        "../data/input/endpoint_1_process_reviews/ai_assistants/Google_Gemini.csv",
+        "../data/input/endpoint_1_process_reviews/ai_assistants/Le_Chat_by_Mistral_AI.csv",
+        "../data/input/endpoint_1_process_reviews/ai_assistants/Microsoft_Copilot.csv",
+        "../data/input/endpoint_1_process_reviews/ai_assistants/Perplexity_-_Ask_Anything.csv"
     ]
 
     configurations = tester.run_full_pipeline(
