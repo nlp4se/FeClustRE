@@ -47,9 +47,9 @@ class SystematicTester:
         self.session_id = self.session_data['session_id']
         logger.info(f"Loaded session: {self.session_id}")
 
-    def process_csv_smart(self, csv_file, model_type='tfrex', sample_size=None, skip_processing=False):
+    def process_csv_smart(self, csv_file, model_type='tfrex', sample_size=None, embedding_type='allmini', skip_processing=False):
         csv_path = Path(csv_file)
-        cache_key = f"{csv_path.stem}_{model_type}_{sample_size}_{hash(csv_path.stat().st_mtime)}"
+        cache_key = f"{csv_path.stem}_{model_type}_{embedding_type}_{sample_size}_{hash(csv_path.stat().st_mtime)}"
         cache_file = self.cache_dir / f"{cache_key}.json"
 
         # Check cache first
@@ -79,8 +79,10 @@ class SystematicTester:
             logger.info(f"Processing {len(df)} rows with model {model_type}")
             with open(temp_file, 'rb') as f:
                 files = {'file': (csv_path.name, f, 'text/csv')}
-                params = {'model_type': model_type}
-
+                params = {
+                    'model_type': model_type,
+                    'embedding_type': embedding_type
+                }
                 response = requests.post(
                     f"{self.base_url}/process_reviews/upload",
                     files=files,
@@ -194,68 +196,77 @@ class SystematicTester:
 
         return saved_results
 
-    def run_full_pipeline(self, csv_files, model_types=['tfrex'], sample_sizes=[1000],
-                          selection_strategies=['balanced'], skip_existing=True):
+    def run_full_pipeline(self,
+                          csv_files, model_types=['tfrex'],
+                          embedding_types=['allmini'],
+                          sample_sizes=[1000],
+                          selection_strategies=['balanced'],
+                          skip_existing=True):
 
         all_configurations = []
 
         for csv_file in csv_files:
             for model_type in model_types:
-                for sample_size in sample_sizes:
-                    for strategy in selection_strategies:
-                        config = {
-                            'csv_file': str(csv_file),
-                            'model_type': model_type,
-                            'sample_size': sample_size,
-                            'selection_strategy': strategy,
-                            'timestamp': datetime.now().isoformat()
-                        }
+                for embedding_type in embedding_types:
+                    for sample_size in sample_sizes:
+                        for strategy in selection_strategies:
+                            config = {
+                                'csv_file': str(csv_file),
+                                'model_type': model_type,
+                                'embedding_type': embedding_type,
+                                'sample_size': sample_size,
+                                'selection_strategy': strategy,
+                                'timestamp': datetime.now().isoformat()
+                            }
 
-                        config_key = f"{Path(csv_file).stem}_{model_type}_{sample_size}_{strategy}"
+                            config_key = f"{Path(csv_file).stem}_{model_type}_{embedding_type}_{sample_size}_{strategy}"
 
-                        if skip_existing and config_key in self.session_data.get('apps_processed', {}):
-                            logger.info(f"Skipping existing configuration: {config_key}")
-                            continue
+                            if skip_existing and config_key in self.session_data.get('apps_processed', {}):
+                                logger.info(f"Skipping existing configuration: {config_key}")
+                                continue
 
-                        logger.info(f"Processing configuration: {config_key}")
+                            logger.info(f"Processing configuration: {config_key}")
 
-                        # Step 1: Process CSV
-                        start_time = time.time()
-                        processing_results = self.process_csv_smart(
-                            csv_file, model_type, sample_size
-                        )
-                        processing_time = time.time() - start_time
+                            # Step 1: Process CSV
+                            start_time = time.time()
+                            processing_results = self.process_csv_smart(
+                                csv_file,
+                                model_type,
+                                sample_size,
+                                embedding_type
+                            )
+                            processing_time = time.time() - start_time
 
-                        if not processing_results:
-                            logger.error(f"Failed to process {config_key}")
-                            continue
+                            if not processing_results:
+                                logger.error(f"Failed to process {config_key}")
+                                continue
 
-                        # Step 2: Auto-select best candidates
-                        app_results = processing_results.get('results', {})
-                        best_selections = self.auto_select_best_candidate(
-                            app_results, strategy
-                        )
+                            # Step 2: Auto-select best candidates
+                            app_results = processing_results.get('results', {})
+                            best_selections = self.auto_select_best_candidate(
+                                app_results, strategy
+                            )
 
-                        # Step 3: Save selected clusterings
-                        saved_results = self.save_selected_clusterings(best_selections)
+                            # Step 3: Save selected clusterings
+                            saved_results = self.save_selected_clusterings(best_selections)
 
-                        # Store configuration results
-                        config.update({
-                            'processing_time': processing_time,
-                            'apps_found': len(app_results),
-                            'successful_selections': len([r for r in saved_results.values()
-                                                          if r['status'] == 'success']),
-                            'processing_results': processing_results,
-                            'best_selections': best_selections,
-                            'saved_results': saved_results
-                        })
+                            # Store configuration results
+                            config.update({
+                                'processing_time': processing_time,
+                                'apps_found': len(app_results),
+                                'successful_selections': len([r for r in saved_results.values()
+                                                              if r['status'] == 'success']),
+                                'processing_results': processing_results,
+                                'best_selections': best_selections,
+                                'saved_results': saved_results
+                            })
 
-                        self.session_data['apps_processed'][config_key] = config
-                        all_configurations.append(config)
+                            self.session_data['apps_processed'][config_key] = config
+                            all_configurations.append(config)
 
-                        self.save_session()
+                            self.save_session()
 
-                        logger.info(f"Completed {config_key} in {processing_time:.2f}s")
+                            logger.info(f"Completed {config_key} in {processing_time:.2f}s")
 
         self.session_data['configurations'] = all_configurations
         self.save_session()
