@@ -7,11 +7,14 @@ import numpy as np
 from transformers import AutoTokenizer, AutoModelForTokenClassification, pipeline
 from sentence_transformers import SentenceTransformer
 
+from config import Config
+
 logger = logging.getLogger(__name__)
 
 class FeatureExtractor:
-    def __init__(self, model_type='t-frex'):
+    def __init__(self, model_type='t-frex', embedding_model='allmini'):
         self.model_type = model_type.lower()
+        self.embedding_model_key = embedding_model
         self.tokenizer = None
         self.model = None
         self.ner_pipeline = None
@@ -36,8 +39,7 @@ class FeatureExtractor:
                     aggregation_strategy="simple",
                     device=0 if torch.cuda.is_available() else -1
                 )
-
-            if self.model_type == 'transfeatex':
+            elif self.model_type == 'transfeatex':
                 self.model_name = "TransfeatEx (API)"
                 use_vpn = True
                 # TODO dont hardcode use config.py
@@ -48,9 +50,8 @@ class FeatureExtractor:
                     self.transfeatex_endpoint = os.environ.get('TRANSFEATEX_URL',
                                                                'http://gessi-chatbots.essi.upc.edu:3004') + '/extract-features'
                     logger.info("Configured TransfeatEx original endpoint.")
-
-            if self.model_type == 'hybrid':
-                self.model_name = "T-FREX + TransfeatEx Hybrid"
+            elif self.model_type == 'hybrid':
+                self.model_name = "hybrid"
                 self.tokenizer = AutoTokenizer.from_pretrained("quim-motger/t-frex-bert-base-uncased")
                 self.model = AutoModelForTokenClassification.from_pretrained("quim-motger/t-frex-bert-base-uncased")
                 self.ner_pipeline = pipeline("ner", model=self.model, tokenizer=self.tokenizer)
@@ -59,9 +60,13 @@ class FeatureExtractor:
             else:
                 raise ValueError(f"Unsupported model type: {self.model_type}")
 
-            # Load embedding model in both cases
             logger.info("Loading embedding model...")
-            self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+            embedding_name = Config.EMBEDDING_MODELS.get(
+                self.embedding_model_key,
+                Config.EMBEDDING_MODELS[Config.DEFAULT_EMBEDDING_MODEL]
+            )
+            logger.info(f"Loaded embedding model: {embedding_name}")
+            self.embedding_model = SentenceTransformer(embedding_name)
             logger.info("Models loaded successfully")
 
         except Exception as e:
