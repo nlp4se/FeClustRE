@@ -1,0 +1,251 @@
+{
+  "taxonomies": [
+    {
+      "depth": 23,
+      "leaves": 1549,
+      "root_id": "mini_taxonomy_root_Claude by Anthropic_Claude by Anthropic_llm_clusters_20250910_112014_7229c851_0_eebb1846",
+      "tag": "productivity and organization",
+      "quality_score": 196.4
+    },
+    {
+      "depth": 17,
+      "leaves": 49,
+      "root_id": "mini_taxonomy_root_Le Chat by Mistral AI_Le Chat by Mistral AI_llm_clusters_20250912_220709_cf0221ab_0_19d1b8db",
+      "tag": "human assistance",
+      "quality_score": 167.0
+    },
+    {
+      "depth": 17,
+      "leaves": 49,
+      "root_id": "mini_taxonomy_root_Le Chat by Mistral AI_Le Chat by Mistral AI_llm_clusters_20250912_221350_0af95778_0_d4115af6",
+      "tag": "multimodal assistance mmaa",
+      "quality_score": 167.0
+    },
+    {
+      "depth": 17,
+      "leaves": 49,
+      "root_id": "mini_taxonomy_root_Le Chat by Mistral AI_Le Chat by Mistral AI_llm_clusters_20250912_222145_775e88ad_0_050d6dcf",
+      "tag": "artificial intelligence ai support",
+      "quality_score": 167.0
+    },
+    {
+      "depth": 17,
+      "leaves": 49,
+      "root_id": "mini_taxonomy_root_Le Chat by Mistral AI_Le Chat by Mistral AI_llm_clusters_20250912_220118_afdd25e8_0_cfa6a4db",
+      "tag": "technology",
+      "quality_score": 163.0
+    },
+    {
+      "depth": 17,
+      "leaves": 49,
+      "root_id": "mini_taxonomy_root_Le Chat by Mistral AI_Le Chat by Mistral AI_llm_clusters_20250912_220459_0d41558a_0_6d1d4ef6",
+      "tag": "language model",
+      "quality_score": 163.0
+    },
+    {
+      "depth": 17,
+      "leaves": 49,
+      "root_id": "mini_taxonomy_root_Le Chat by Mistral AI_Le Chat by Mistral AI_llm_clusters_20250912_221003_cb74ad37_0_5c93bede",
+      "tag": "business proposal",
+      "quality_score": 163.0
+    },
+    {
+      "depth": 17,
+      "leaves": 49,
+      "root_id": "mini_taxonomy_root_Le Chat by Mistral AI_Le Chat by Mistral AI_llm_clusters_20250912_221055_85c56ece_0_7a0f9a5a",
+      "tag": "e-commerce",
+      "quality_score": 163.0
+    },
+    {
+      "depth": 17,
+      "leaves": 49,
+      "root_id": "mini_taxonomy_root_Le Chat by Mistral AI_Le Chat by Mistral AI_llm_clusters_20250912_221143_640b4f34_0_f683a7d0",
+      "tag": "multimodal information retrieval mimir",
+      "quality_score": 163.0
+    },
+    {
+      "depth": 17,
+      "leaves": 49,
+      "root_id": "mini_taxonomy_root_Le Chat by Mistral AI_Le Chat by Mistral AI_llm_clusters_20250912_221556_0ae9cadf_0_c84b0313",
+      "tag": "multimodal input and output miio",
+      "quality_score": 163.0
+    },
+    {
+      "depth": 17,
+      "leaves": 49,
+      "root_id": "mini_taxonomy_root_Le Chat by Mistral AI_Le Chat by Mistral AI_llm_clusters_20250912_221851_72f190d8_0_d3a71efc",
+      "tag": "e-commerce platform",
+      "quality_score": 163.0
+    },
+    {
+      "depth": 16,
+      "leaves": 47,
+      "root_id": "mini_taxonomy_root_Microsoft Copilot_Microsoft Copilot_llm_clusters_20250913_053908_d79118ef_1_bf16a722",
+      "tag": "community",
+      "quality_score": 159.0
+    },
+    {
+      "depth": 12,
+      "leaves": 48,
+      "root_id": "mini_taxonomy_root_Perplexity - Ask Anything_Perplexity - Ask Anything_llm_clusters_20250913_075913_a14fdebd_47_b56fd0d4",
+      "tag": "text-based assistance",
+      "quality_score": 156.0
+    },
+    {
+      "depth": 17,
+      "leaves": 49,
+      "root_id": "mini_taxonomy_root_Le Chat by Mistral AI_Le Chat by Mistral AI_llm_clusters_20250912_220411_1223eb27_0_d325ef2d",
+      "tag": "multimodal assistance mmaa refers to the application of multiple modes of communication including text voice images and other forms of digital information to support human interaction and facilitate various tasks and activities",
+      "quality_score": 155.0
+    },
+    {
+      "depth": 17,
+      "leaves": 40,
+      "root_id": "mini_taxonomy_root_Microsoft Copilot_Microsoft Copilot_llm_clusters_20250912_231510_9c40efbe_19_e2d3a96e",
+      "tag": "language models",
+      "quality_score": 154.0
+    },
+    {
+      "depth": 14,
+      "leaves": 40,
+      "root_id": "mini_taxonomy_root_Claude by Anthropic_Claude by Anthropic_llm_clusters_20250911_223214_7655b06f_8_c1eae1bc",
+      "tag": "ai-assisted communication ac",
+      "quality_score": 152.0
+    },
+    {
+      "depth": 10,
+      "leaves": 48,
+      "root_id": "mini_taxonomy_root_DeepSeek - AI Assistant_DeepSeek - AI Assistant_llm_clusters_20250911_230214_b7d66724_7_858f1296",
+      "tag": "tech support",
+      "quality_score": 152.0
+    },
+    {
+      "depth": 11,
+      "leaves": 49,
+      "root_id": "mini_taxonomy_root_ChatGPT_ChatGPT_llm_clusters_20250911_154309_2ee30592_3_f1e5fb49",
+      "tag": "language identification",
+      "quality_score": 151.0
+    },
+    {
+      "depth": 10,
+      "leaves": 47,
+      "root_id": "mini_taxonomy_root_Claude by Anthropic_Claude by Anthropic_llm_clusters_20250911_221849_b187de02_5_8a9dffea",
+      "tag": "communication",
+      "quality_score": 151.0
+    },
+    {
+      "depth": 10,
+      "leaves": 50,
+      "root_id": "mini_taxonomy_root_ChatGPT_ChatGPT_llm_clusters_20250910_211317_7446ddbb_0_d4cc3d46",
+      "tag": "voice interaction vi",
+      "quality_score": 150.0
+    }
+  ],
+  "semantic_analysis": {
+    "tag_clusters": [
+      {
+        "tag1": "language model",
+        "tag2": "language models",
+        "similarity": 0.9356136918067932
+      },
+      {
+        "tag1": "e-commerce",
+        "tag2": "e-commerce platform",
+        "similarity": 0.8273215293884277
+      },
+      {
+        "tag1": "multimodal assistance mmaa",
+        "tag2": "multimodal assistance mmaa refers to the application of multiple modes of communication including text voice images and other forms of digital information to support human interaction and facilitate various tasks and activities",
+        "similarity": 0.8167125582695007
+      }
+    ],
+    "feature_patterns": {
+      "most_common_words": [
+        [
+          "and",
+          5
+        ],
+        [
+          "assistance",
+          4
+        ],
+        [
+          "multimodal",
+          4
+        ],
+        [
+          "support",
+          3
+        ],
+        [
+          "language",
+          3
+        ],
+        [
+          "of",
+          3
+        ],
+        [
+          "communication",
+          3
+        ],
+        [
+          "human",
+          2
+        ],
+        [
+          "mmaa",
+          2
+        ],
+        [
+          "e-commerce",
+          2
+        ],
+        [
+          "information",
+          2
+        ],
+        [
+          "to",
+          2
+        ],
+        [
+          "voice",
+          2
+        ],
+        [
+          "interaction",
+          2
+        ],
+        [
+          "productivity",
+          1
+        ],
+        [
+          "organization",
+          1
+        ],
+        [
+          "artificial",
+          1
+        ],
+        [
+          "intelligence",
+          1
+        ],
+        [
+          "ai",
+          1
+        ],
+        [
+          "technology",
+          1
+        ]
+      ],
+      "unique_words": 52,
+      "total_words": 77
+    },
+    "coherence_scores": {},
+    "redundancy_analysis": {}
+  }
+}

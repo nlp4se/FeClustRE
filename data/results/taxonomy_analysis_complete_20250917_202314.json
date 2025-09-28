@@ -1,0 +1,709 @@
+{
+  "metadata": {
+    "analysis_timestamp": "2025-09-17T20:23:14.967712",
+    "total_taxonomies_analyzed": 1428,
+    "best_taxonomies_count": 20,
+    "worst_taxonomies_count": 20,
+    "small_taxonomies_count": 10
+  },
+  "best_taxonomies": {
+    "taxonomies": [
+      {
+        "depth": 23,
+        "leaves": 1549,
+        "root_id": "mini_taxonomy_root_Claude by Anthropic_Claude by Anthropic_llm_clusters_20250910_112014_7229c851_0_eebb1846",
+        "tag": "productivity and organization",
+        "quality_score": 196.4
+      },
+      {
+        "depth": 17,
+        "leaves": 49,
+        "root_id": "mini_taxonomy_root_Le Chat by Mistral AI_Le Chat by Mistral AI_llm_clusters_20250912_220709_cf0221ab_0_19d1b8db",
+        "tag": "human assistance",
+        "quality_score": 167.0
+      },
+      {
+        "depth": 17,
+        "leaves": 49,
+        "root_id": "mini_taxonomy_root_Le Chat by Mistral AI_Le Chat by Mistral AI_llm_clusters_20250912_221350_0af95778_0_d4115af6",
+        "tag": "multimodal assistance mmaa",
+        "quality_score": 167.0
+      },
+      {
+        "depth": 17,
+        "leaves": 49,
+        "root_id": "mini_taxonomy_root_Le Chat by Mistral AI_Le Chat by Mistral AI_llm_clusters_20250912_222145_775e88ad_0_050d6dcf",
+        "tag": "artificial intelligence ai support",
+        "quality_score": 167.0
+      },
+      {
+        "depth": 17,
+        "leaves": 49,
+        "root_id": "mini_taxonomy_root_Le Chat by Mistral AI_Le Chat by Mistral AI_llm_clusters_20250912_220118_afdd25e8_0_cfa6a4db",
+        "tag": "technology",
+        "quality_score": 163.0
+      },
+      {
+        "depth": 17,
+        "leaves": 49,
+        "root_id": "mini_taxonomy_root_Le Chat by Mistral AI_Le Chat by Mistral AI_llm_clusters_20250912_220459_0d41558a_0_6d1d4ef6",
+        "tag": "language model",
+        "quality_score": 163.0
+      },
+      {
+        "depth": 17,
+        "leaves": 49,
+        "root_id": "mini_taxonomy_root_Le Chat by Mistral AI_Le Chat by Mistral AI_llm_clusters_20250912_221003_cb74ad37_0_5c93bede",
+        "tag": "business proposal",
+        "quality_score": 163.0
+      },
+      {
+        "depth": 17,
+        "leaves": 49,
+        "root_id": "mini_taxonomy_root_Le Chat by Mistral AI_Le Chat by Mistral AI_llm_clusters_20250912_221055_85c56ece_0_7a0f9a5a",
+        "tag": "e-commerce",
+        "quality_score": 163.0
+      },
+      {
+        "depth": 17,
+        "leaves": 49,
+        "root_id": "mini_taxonomy_root_Le Chat by Mistral AI_Le Chat by Mistral AI_llm_clusters_20250912_221143_640b4f34_0_f683a7d0",
+        "tag": "multimodal information retrieval mimir",
+        "quality_score": 163.0
+      },
+      {
+        "depth": 17,
+        "leaves": 49,
+        "root_id": "mini_taxonomy_root_Le Chat by Mistral AI_Le Chat by Mistral AI_llm_clusters_20250912_221556_0ae9cadf_0_c84b0313",
+        "tag": "multimodal input and output miio",
+        "quality_score": 163.0
+      },
+      {
+        "depth": 17,
+        "leaves": 49,
+        "root_id": "mini_taxonomy_root_Le Chat by Mistral AI_Le Chat by Mistral AI_llm_clusters_20250912_221851_72f190d8_0_d3a71efc",
+        "tag": "e-commerce platform",
+        "quality_score": 163.0
+      },
+      {
+        "depth": 16,
+        "leaves": 47,
+        "root_id": "mini_taxonomy_root_Microsoft Copilot_Microsoft Copilot_llm_clusters_20250913_053908_d79118ef_1_bf16a722",
+        "tag": "community",
+        "quality_score": 159.0
+      },
+      {
+        "depth": 12,
+        "leaves": 48,
+        "root_id": "mini_taxonomy_root_Perplexity - Ask Anything_Perplexity - Ask Anything_llm_clusters_20250913_075913_a14fdebd_47_b56fd0d4",
+        "tag": "text-based assistance",
+        "quality_score": 156.0
+      },
+      {
+        "depth": 17,
+        "leaves": 49,
+        "root_id": "mini_taxonomy_root_Le Chat by Mistral AI_Le Chat by Mistral AI_llm_clusters_20250912_220411_1223eb27_0_d325ef2d",
+        "tag": "multimodal assistance mmaa refers to the application of multiple modes of communication including text voice images and other forms of digital information to support human interaction and facilitate various tasks and activities",
+        "quality_score": 155.0
+      },
+      {
+        "depth": 17,
+        "leaves": 40,
+        "root_id": "mini_taxonomy_root_Microsoft Copilot_Microsoft Copilot_llm_clusters_20250912_231510_9c40efbe_19_e2d3a96e",
+        "tag": "language models",
+        "quality_score": 154.0
+      },
+      {
+        "depth": 14,
+        "leaves": 40,
+        "root_id": "mini_taxonomy_root_Claude by Anthropic_Claude by Anthropic_llm_clusters_20250911_223214_7655b06f_8_c1eae1bc",
+        "tag": "ai-assisted communication ac",
+        "quality_score": 152.0
+      },
+      {
+        "depth": 10,
+        "leaves": 48,
+        "root_id": "mini_taxonomy_root_DeepSeek - AI Assistant_DeepSeek - AI Assistant_llm_clusters_20250911_230214_b7d66724_7_858f1296",
+        "tag": "tech support",
+        "quality_score": 152.0
+      },
+      {
+        "depth": 11,
+        "leaves": 49,
+        "root_id": "mini_taxonomy_root_ChatGPT_ChatGPT_llm_clusters_20250911_154309_2ee30592_3_f1e5fb49",
+        "tag": "language identification",
+        "quality_score": 151.0
+      },
+      {
+        "depth": 10,
+        "leaves": 47,
+        "root_id": "mini_taxonomy_root_Claude by Anthropic_Claude by Anthropic_llm_clusters_20250911_221849_b187de02_5_8a9dffea",
+        "tag": "communication",
+        "quality_score": 151.0
+      },
+      {
+        "depth": 10,
+        "leaves": 50,
+        "root_id": "mini_taxonomy_root_ChatGPT_ChatGPT_llm_clusters_20250910_211317_7446ddbb_0_d4cc3d46",
+        "tag": "voice interaction vi",
+        "quality_score": 150.0
+      }
+    ],
+    "semantic_analysis": {
+      "tag_clusters": [
+        {
+          "tag1": "language model",
+          "tag2": "language models",
+          "similarity": 0.9356136918067932
+        },
+        {
+          "tag1": "e-commerce",
+          "tag2": "e-commerce platform",
+          "similarity": 0.8273215293884277
+        },
+        {
+          "tag1": "multimodal assistance mmaa",
+          "tag2": "multimodal assistance mmaa refers to the application of multiple modes of communication including text voice images and other forms of digital information to support human interaction and facilitate various tasks and activities",
+          "similarity": 0.8167125582695007
+        }
+      ],
+      "feature_patterns": {
+        "most_common_words": [
+          [
+            "and",
+            5
+          ],
+          [
+            "assistance",
+            4
+          ],
+          [
+            "multimodal",
+            4
+          ],
+          [
+            "support",
+            3
+          ],
+          [
+            "language",
+            3
+          ],
+          [
+            "of",
+            3
+          ],
+          [
+            "communication",
+            3
+          ],
+          [
+            "human",
+            2
+          ],
+          [
+            "mmaa",
+            2
+          ],
+          [
+            "e-commerce",
+            2
+          ],
+          [
+            "information",
+            2
+          ],
+          [
+            "to",
+            2
+          ],
+          [
+            "voice",
+            2
+          ],
+          [
+            "interaction",
+            2
+          ],
+          [
+            "productivity",
+            1
+          ],
+          [
+            "organization",
+            1
+          ],
+          [
+            "artificial",
+            1
+          ],
+          [
+            "intelligence",
+            1
+          ],
+          [
+            "ai",
+            1
+          ],
+          [
+            "technology",
+            1
+          ]
+        ],
+        "unique_words": 52,
+        "total_words": 77
+      },
+      "coherence_scores": {},
+      "redundancy_analysis": {}
+    }
+  },
+  "worst_taxonomies": {
+    "taxonomies": [
+      {
+        "depth": 16,
+        "leaves": 143,
+        "root_id": "mini_taxonomy_root_ChatGPT_ChatGPT_llm_clusters_20250910_201138_66eec707_2_2b3aa0a9",
+        "tag": "productivity and information retrieval",
+        "quality_score": 52.3
+      },
+      {
+        "depth": 14,
+        "leaves": 145,
+        "root_id": "mini_taxonomy_root_Claude by Anthropic_Claude by Anthropic_llm_clusters_20250910_113541_869f247f_0_1770d541",
+        "tag": "text",
+        "quality_score": 51.5
+      },
+      {
+        "depth": 10,
+        "leaves": 155,
+        "root_id": "mini_taxonomy_root_ChatGPT_ChatGPT_llm_clusters_20250910_082253_e6995ce8_4_a4b72909",
+        "tag": "education",
+        "quality_score": 50.5
+      },
+      {
+        "depth": 9,
+        "leaves": 174,
+        "root_id": "mini_taxonomy_root_Google Gemini_Google Gemini_llm_clusters_20250912_020749_ecf39b6e_37_01c3d1c3",
+        "tag": "productivity and organization",
+        "quality_score": 49.900000000000006
+      },
+      {
+        "depth": 9,
+        "leaves": 125,
+        "root_id": "mini_taxonomy_root_Microsoft Copilot_Microsoft Copilot_llm_clusters_20250912_223025_37325bf6_39_69c74ffd",
+        "tag": "social media support",
+        "quality_score": 49.0
+      },
+      {
+        "depth": 9,
+        "leaves": 164,
+        "root_id": "mini_taxonomy_root_Google Gemini_Google Gemini_llm_clusters_20250912_023901_a71aa325_23_a78ea684",
+        "tag": "context-aware interaction",
+        "quality_score": 48.900000000000006
+      },
+      {
+        "depth": 8,
+        "leaves": 177,
+        "root_id": "mini_taxonomy_root_Microsoft Copilot_Microsoft Copilot_llm_clusters_20250912_223928_6edadcdb_19_2c16fa89",
+        "tag": "productivity and organization",
+        "quality_score": 47.7
+      },
+      {
+        "depth": 12,
+        "leaves": 112,
+        "root_id": "mini_taxonomy_root_ChatGPT_ChatGPT_llm_clusters_20250910_082155_c4ba5aa6_17_dbcac723",
+        "tag": "ai applications",
+        "quality_score": 47.2
+      },
+      {
+        "depth": 12,
+        "leaves": 104,
+        "root_id": "mini_taxonomy_root_ChatGPT_ChatGPT_llm_clusters_20250910_083141_b1b6b350_0_636310ca",
+        "tag": "artificial intelligence ai",
+        "quality_score": 46.4
+      },
+      {
+        "depth": 8,
+        "leaves": 116,
+        "root_id": "mini_taxonomy_root_ChatGPT_ChatGPT_llm_clusters_20250910_082050_d634221b_174_9f47e36b",
+        "tag": "image processing",
+        "quality_score": 45.6
+      },
+      {
+        "depth": 9,
+        "leaves": 129,
+        "root_id": "mini_taxonomy_root_ChatGPT_ChatGPT_llm_clusters_20250910_204708_70fa85d0_19_3c8fef39",
+        "tag": "multimodal understanding",
+        "quality_score": 45.4
+      },
+      {
+        "depth": 8,
+        "leaves": 111,
+        "root_id": "mini_taxonomy_root_Google Gemini_Google Gemini_llm_clusters_20250912_020749_ecf39b6e_25_8c9eba83",
+        "tag": "social media support",
+        "quality_score": 45.1
+      },
+      {
+        "depth": 6,
+        "leaves": 114,
+        "root_id": "mini_taxonomy_root_ChatGPT_ChatGPT_llm_clusters_20250910_194105_caca669e_9_c8e636e6",
+        "tag": "learning and education support",
+        "quality_score": 44.4
+      },
+      {
+        "depth": 9,
+        "leaves": 109,
+        "root_id": "mini_taxonomy_root_Google Gemini_Google Gemini_llm_clusters_20250912_020311_2f8b14f4_3_8964bb42",
+        "tag": "text",
+        "quality_score": 43.4
+      },
+      {
+        "depth": 7,
+        "leaves": 107,
+        "root_id": "mini_taxonomy_root_ChatGPT_ChatGPT_llm_clusters_20250910_080717_f2c7aed2_2_f03866f7",
+        "tag": "social media support",
+        "quality_score": 42.2
+      },
+      {
+        "depth": 6,
+        "leaves": 162,
+        "root_id": "mini_taxonomy_root_Perplexity - Ask Anything_Perplexity - Ask Anything_llm_clusters_20250913_072623_d6afa9ba_55_c1cbd8be",
+        "tag": "productivity and organization",
+        "quality_score": 41.2
+      },
+      {
+        "depth": 8,
+        "leaves": 103,
+        "root_id": "mini_taxonomy_root_ChatGPT_ChatGPT_llm_clusters_20250910_080720_6f1048b4_5_a37f2653",
+        "tag": "image editing",
+        "quality_score": 40.3
+      },
+      {
+        "depth": 6,
+        "leaves": 150,
+        "root_id": "mini_taxonomy_root_Perplexity - Ask Anything_Perplexity - Ask Anything_llm_clusters_20250913_072115_481ae932_16_17172e79",
+        "tag": "image generation",
+        "quality_score": 40.0
+      },
+      {
+        "depth": 6,
+        "leaves": 120,
+        "root_id": "mini_taxonomy_root_DeepSeek - AI Assistant_DeepSeek - AI Assistant_llm_clusters_20250910_114925_1d7694a1_1_e5c1470e",
+        "tag": "translation",
+        "quality_score": 37.0
+      },
+      {
+        "depth": 5,
+        "leaves": 101,
+        "root_id": "mini_taxonomy_root_ChatGPT_ChatGPT_llm_clusters_20250910_080741_a1a69ff1_9_2a676c55",
+        "tag": "assistance",
+        "quality_score": 36.6
+      }
+    ],
+    "semantic_analysis": {
+      "tag_clusters": [
+        {
+          "tag1": "text",
+          "tag2": "text",
+          "similarity": 1.0000004768371582
+        },
+        {
+          "tag1": "productivity and organization",
+          "tag2": "productivity and organization",
+          "similarity": 1.0000004768371582
+        },
+        {
+          "tag1": "productivity and organization",
+          "tag2": "productivity and organization",
+          "similarity": 1.0000004768371582
+        },
+        {
+          "tag1": "productivity and organization",
+          "tag2": "productivity and organization",
+          "similarity": 1.0000004768371582
+        },
+        {
+          "tag1": "social media support",
+          "tag2": "social media support",
+          "similarity": 1.0000001192092896
+        },
+        {
+          "tag1": "social media support",
+          "tag2": "social media support",
+          "similarity": 1.0000001192092896
+        },
+        {
+          "tag1": "social media support",
+          "tag2": "social media support",
+          "similarity": 1.0000001192092896
+        }
+      ],
+      "feature_patterns": {
+        "most_common_words": [
+          [
+            "and",
+            5
+          ],
+          [
+            "productivity",
+            4
+          ],
+          [
+            "support",
+            4
+          ],
+          [
+            "organization",
+            3
+          ],
+          [
+            "social",
+            3
+          ],
+          [
+            "media",
+            3
+          ],
+          [
+            "image",
+            3
+          ],
+          [
+            "text",
+            2
+          ],
+          [
+            "education",
+            2
+          ],
+          [
+            "ai",
+            2
+          ],
+          [
+            "information",
+            1
+          ],
+          [
+            "retrieval",
+            1
+          ],
+          [
+            "context-aware",
+            1
+          ],
+          [
+            "interaction",
+            1
+          ],
+          [
+            "applications",
+            1
+          ],
+          [
+            "artificial",
+            1
+          ],
+          [
+            "intelligence",
+            1
+          ],
+          [
+            "processing",
+            1
+          ],
+          [
+            "multimodal",
+            1
+          ],
+          [
+            "understanding",
+            1
+          ]
+        ],
+        "unique_words": 25,
+        "total_words": 46
+      },
+      "coherence_scores": {},
+      "redundancy_analysis": {}
+    }
+  },
+  "small_taxonomies": {
+    "taxonomies": [
+      {
+        "depth": 17,
+        "leaves": 49,
+        "root_id": "mini_taxonomy_root_Le Chat by Mistral AI_Le Chat by Mistral AI_llm_clusters_20250912_220709_cf0221ab_0_19d1b8db",
+        "tag": "human assistance",
+        "quality_score": 167.0
+      },
+      {
+        "depth": 17,
+        "leaves": 49,
+        "root_id": "mini_taxonomy_root_Le Chat by Mistral AI_Le Chat by Mistral AI_llm_clusters_20250912_221350_0af95778_0_d4115af6",
+        "tag": "multimodal assistance mmaa",
+        "quality_score": 167.0
+      },
+      {
+        "depth": 17,
+        "leaves": 49,
+        "root_id": "mini_taxonomy_root_Le Chat by Mistral AI_Le Chat by Mistral AI_llm_clusters_20250912_222145_775e88ad_0_050d6dcf",
+        "tag": "artificial intelligence ai support",
+        "quality_score": 167.0
+      },
+      {
+        "depth": 17,
+        "leaves": 49,
+        "root_id": "mini_taxonomy_root_Le Chat by Mistral AI_Le Chat by Mistral AI_llm_clusters_20250912_220118_afdd25e8_0_cfa6a4db",
+        "tag": "technology",
+        "quality_score": 163.0
+      },
+      {
+        "depth": 17,
+        "leaves": 49,
+        "root_id": "mini_taxonomy_root_Le Chat by Mistral AI_Le Chat by Mistral AI_llm_clusters_20250912_220459_0d41558a_0_6d1d4ef6",
+        "tag": "language model",
+        "quality_score": 163.0
+      },
+      {
+        "depth": 17,
+        "leaves": 49,
+        "root_id": "mini_taxonomy_root_Le Chat by Mistral AI_Le Chat by Mistral AI_llm_clusters_20250912_221003_cb74ad37_0_5c93bede",
+        "tag": "business proposal",
+        "quality_score": 163.0
+      },
+      {
+        "depth": 17,
+        "leaves": 49,
+        "root_id": "mini_taxonomy_root_Le Chat by Mistral AI_Le Chat by Mistral AI_llm_clusters_20250912_221055_85c56ece_0_7a0f9a5a",
+        "tag": "e-commerce",
+        "quality_score": 163.0
+      },
+      {
+        "depth": 17,
+        "leaves": 49,
+        "root_id": "mini_taxonomy_root_Le Chat by Mistral AI_Le Chat by Mistral AI_llm_clusters_20250912_221143_640b4f34_0_f683a7d0",
+        "tag": "multimodal information retrieval mimir",
+        "quality_score": 163.0
+      },
+      {
+        "depth": 17,
+        "leaves": 49,
+        "root_id": "mini_taxonomy_root_Le Chat by Mistral AI_Le Chat by Mistral AI_llm_clusters_20250912_221556_0ae9cadf_0_c84b0313",
+        "tag": "multimodal input and output miio",
+        "quality_score": 163.0
+      },
+      {
+        "depth": 17,
+        "leaves": 49,
+        "root_id": "mini_taxonomy_root_Le Chat by Mistral AI_Le Chat by Mistral AI_llm_clusters_20250912_221851_72f190d8_0_d3a71efc",
+        "tag": "e-commerce platform",
+        "quality_score": 163.0
+      }
+    ],
+    "semantic_analysis": {
+      "tag_clusters": [
+        {
+          "tag1": "e-commerce",
+          "tag2": "e-commerce platform",
+          "similarity": 0.8273216485977173
+        }
+      ],
+      "feature_patterns": {
+        "most_common_words": [
+          [
+            "multimodal",
+            3
+          ],
+          [
+            "assistance",
+            2
+          ],
+          [
+            "e-commerce",
+            2
+          ],
+          [
+            "human",
+            1
+          ],
+          [
+            "mmaa",
+            1
+          ],
+          [
+            "artificial",
+            1
+          ],
+          [
+            "intelligence",
+            1
+          ],
+          [
+            "ai",
+            1
+          ],
+          [
+            "support",
+            1
+          ],
+          [
+            "technology",
+            1
+          ],
+          [
+            "language",
+            1
+          ],
+          [
+            "model",
+            1
+          ],
+          [
+            "business",
+            1
+          ],
+          [
+            "proposal",
+            1
+          ],
+          [
+            "information",
+            1
+          ],
+          [
+            "retrieval",
+            1
+          ],
+          [
+            "mimir",
+            1
+          ],
+          [
+            "input",
+            1
+          ],
+          [
+            "and",
+            1
+          ],
+          [
+            "output",
+            1
+          ]
+        ],
+        "unique_words": 22,
+        "total_words": 26
+      },
+      "coherence_scores": {},
+      "redundancy_analysis": {}
+    }
+  },
+  "quality_distribution": {
+    "mean_score": 99.26743697478993,
+    "median_score": 97.0,
+    "std_score": 19.508727412407765,
+    "min_score": 36.6,
+    "max_score": 196.4
+  }
+}
