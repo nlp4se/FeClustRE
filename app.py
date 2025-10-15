@@ -33,7 +33,7 @@ app.config.from_object(config['default'])
 # Initialize services
 neo4j_conn = Neo4jConnection()
 preprocessor = ReviewPreprocessor()
-feature_extractor = FeatureExtractor()
+feature_extractor = FeatureExtractor(enable_postprocessing=True)
 clusterer = HierarchicalClusterer()
 taxonomy_builder = TaxonomyBuilder(neo4j_conn, feature_extractor)
 
@@ -710,8 +710,8 @@ def convert_numpy_types(obj):
 
 def get_feature_extractor():
     model_type = request.args.get("model_type", "tfrex").lower()
-    return FeatureExtractor(model_type=model_type)
-
+    enable_postprocessing = request.args.get("enable_postprocessing", "true").lower() == "true"
+    return FeatureExtractor(model_type=model_type, enable_postprocessing=enable_postprocessing)
 
 @app.route('/mini_taxonomies/<app_name>', methods=['GET'])
 def get_mini_taxonomies(app_name):
