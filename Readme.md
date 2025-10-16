@@ -5,22 +5,11 @@
 **FeClustRE** is a system for extracting **app features** from reviews, grouping them into **hierarchical taxonomies**, and assigning **semantic labels** to each cluster using **LLMs**. 
 The pipeline stores taxonomies in **Neo4j** and provides utilities to assess the quality and coherence of these structures.
 
-This repository serves as the full **replication package** for our paper, including code, metrics, and queries.
+This repository serves as the full **replication package** for our paper, including code, metrics, and automated evaluation framework.
 
 ---
 
-## System Architecture
-
-1. **Feature Extraction:** Extracts candidate feature phrases from app reviews using T-FREX or TransfeatEx models.
-2. **Hierarchical Clustering:** Groups features into clusters via agglomerative clustering with automatic threshold tuning.
-3. **Taxonomy Construction:** Each cluster is transformed into a mini taxonomy tree structure and stored in Neo4j.
-4. **LLM Semantic Labeling:** The root of each taxonomy is assigned a human-readable label by an LLM based on its child features.
-5. **Taxonomy Merging:** Similar taxonomies are automatically merged based on semantic similarity.
-6. **Analysis Tools:** Provides similarity analysis, singleton detection, and low-quality label diagnostics.
-
----
-
-## Setup Instructions
+## Quick Start - Replication Package
 
 ### 1. Install Dependencies
 
@@ -52,7 +41,7 @@ OLLAMA_BASE_URL = "http://localhost:11434"
 OLLAMA_MODEL = "qwen:1.8b"
 ```
 
-### 4. Run the Backend API Server
+### 4. Start the Backend API Server
 
 ```bash
 python app.py
@@ -60,68 +49,61 @@ python app.py
 
 The API server will be available at `http://localhost:3000`
 
-### 5. Run the Streamlit Frontend
+### 5. Run Systematic Experiments
+
+All experiments from the paper can be replicated using the systematic testing framework:
 
 ```bash
-streamlit run frontend.py
+# Mock test (quick validation with 2 apps, small samples)
+python test_config.py mock
+
+# Full comprehensive test (all apps, multiple configurations)
+python test_config.py full
+
+# Semantic experiment (hybrid model, maximum data, balanced strategy)
+python test_config.py semantic
 ```
 
-The web interface will be available at `http://localhost:8501`
+#### Experiment Configurations
+
+**Mock Test:**
+- Apps: ChatGPT, Claude by Anthropic
+- Models: transfeatex, t-frex, hybrid
+- Embeddings: allmini, sentence-t5
+- Sample sizes: 10, 20, 50
+- Strategies: balanced, silhouette, conservative
+
+**Full Test:**
+- Apps: All 7 AI assistants (ChatGPT, Claude, DeepSeek, Gemini, Le Chat, Copilot, Perplexity)
+- Models: t-frex, transfeatex, hybrid
+- Embeddings: allmini, sentence-t5
+- Sample sizes: 1000, 2000, 5000, 50000
+- Strategies: balanced, silhouette, conservative
+
+**Semantic Experiment:**
+- Apps: All 7 AI assistants
+- Models: hybrid
+- Embeddings: allmini
+- Sample sizes: No limit (all available reviews)
+- Strategies: balanced
 
 ---
 
-## Usage
+## Dataset
 
-### CSV Input Format
+The dataset is available in `/data/input/endpoint_1_process_reviews/` directory with two categories:
 
-The system accepts CSV files with multiple apps containing the following required columns:
+### AI Assistants (`/data/input/endpoint_1_process_reviews/ai_assistants/`)
+- ChatGPT.csv
+- Claude_by_Anthropic.csv
+- DeepSeek_-_AI_Assistant.csv
+- Google_Gemini.csv
+- Le_Chat_by_Mistral_AI.csv
+- Microsoft_Copilot.csv
+- Perplexity_-_Ask_Anything.csv
 
-- `app_name`: Name of the application
-- `review`: Review text content
-- `app_package`: Application package identifier
-- `app_categoryId`: Application category
-- `reviewId`: Unique review identifier
-- `score`: Review rating/score
 
-### Processing Workflow
-
-1. **Upload CSV**: Use the Streamlit interface to upload your multi-app CSV file
-2. **Select Model**: Choose between 'tfrex' (local) or 'transfeatex' (API) for feature extraction
-3. **Process Data**: Click 'Run Feature Extraction & Clustering' to analyze all apps
-4. **Review Candidates**: Examine different clustering options with metrics (silhouette score, Davies-Bouldin score)
-5. **Save Best Option**: Select and save the clustering that best fits your needs
-6. **View Taxonomy**: See the generated semantic taxonomy with automatic merging results
-7. **Analyze Metrics**: Use 'View LLM Taxonomy Metrics' for quality assessment
-
----
-
-## Key API Endpoints
-
-| Endpoint                                    | Description                                          |
-| ------------------------------------------- | ---------------------------------------------------- |
-| `POST /process_reviews/upload`              | Upload and process multi-app review CSV             |
-| `POST /save_selected_clustering/<app_name>` | Save clusters, build taxonomies, tag roots using LLM |
-| `GET /llm_taxonomy_metrics`                 | Analyze tag similarity and quality across all apps  |
-| `GET /health`                              | Check system health and component status            |
-
----
-
-## Neo4j Taxonomy Schema
-
-Each taxonomy is structured as a tree:
-
-**MiniTaxonomyNode Schema:**
-- `id`: Unique node identifier
-- `llm_tag`: Semantic label generated by LLM (root nodes only)
-- `feature`: Feature text (leaf nodes)
-- `is_leaf`: Boolean indicating leaf status
-- `session_id`: Session identifier for grouping
-
-**Relationships:**
-- `HAS_CHILD`: Hierarchical parent-child relation
-- `HAS_MINI_TAXONOMY`: Links App to taxonomy root
-
-### Query to View All Mini Taxonomies
+### Query All Taxonomies
 
 ```cypher
 MATCH (app:App)-[:HAS_MINI_TAXONOMY]->(root:MiniTaxonomyNode)
@@ -133,116 +115,3 @@ RETURN app.name as app_name,
        count(DISTINCT leaf) as leaf_count,
        collect(DISTINCT leaf.feature) as features
 ```
-
----
-
-## LLM Prompt for Semantic Labeling
-
-The system uses few-shot prompting with examples from major AI assistants for semantic labeling:
-
-```text
-You are an assistant that assigns a single, concise category name to a list of app feature keywords.
-Your response must be only the category name. No explanations. No punctuation.
-Return only the category name — a short phrase (1 to 4 words).
-
-Examples:
-Features: generate original images, transform existing images
-Category: Image generation
-
-Features: real-time convo, practice a new language, settle a debate
-Category: Advanced voice mode
-
-Features: [cluster features go here]
-Category:
-```
-
----
-
-## Taxonomy Quality Metrics
-
-Available at `/llm_taxonomy_metrics` endpoint and through the frontend:
-
-### Overview Metrics
-- **Total Taxonomies**: Number of generated taxonomies across all apps
-- **Distinct Tags**: Number of unique semantic labels
-- **Duplicate Tags**: Labels appearing multiple times
-- **Low Quality Count**: Generic or pattern-detected poor labels
-
-### Structure Analysis
-- **Singleton Taxonomies**: Trees with only one feature
-- **Large Taxonomies**: Trees with 10+ features
-- **Average Depth/Leaves**: Structural complexity metrics
-
-### Similarity Analysis
-- **High-Similarity Pairs**: Label pairs with >90% semantic similarity
-- **Similarity Clustering**: Groups of related labels at different thresholds
-- **Merge Candidates**: Automatically identified merge opportunities
-
-### Content Quality
-- **Feature Overlap**: Features appearing in multiple taxonomies
-- **Naming Patterns**: Common words in semantic labels
-- **Session Breakdown**: Taxonomy distribution by processing session
-
-Sample metrics output:
-
-```json
-{
-  "overview": {
-    "total_taxonomies": 156,
-    "distinct_tags": 142,
-    "duplicate_tags": 8,
-    "low_quality_count": 3
-  },
-  "similarity_analysis": {
-    "threshold_85": {
-      "total_groups": 12,
-      "tags_in_groups": 28,
-      "singleton_tags": 114
-    }
-  },
-  "merge_candidates": [
-    {
-      "tag_a": "Messaging",
-      "tag_b": "Chat Features", 
-      "similarity": 0.91,
-      "merge_candidate": true
-    }
-  ]
-}
-```
-
----
-
-## Feature Extraction Models
-
-### T-FREX (Local)
-- Model: `quim-motger/t-frex-bert-base-uncased`
-- Local BERT-based named entity recognition
-- Confidence threshold: 0.5
-
-### TransfeatEx (API)
-- Remote API endpoint for feature extraction
-- Configure via `TRANSFEATEX_URL` environment variable
-- Fallback to empty features on API failure
-
-### Embedding Model
-- `all-MiniLM-L6-v2` for semantic similarity computation
-- Used for clustering and taxonomy merging decisions
-
----
-
-## Clustering Configuration
-
-### Hierarchical Clustering Parameters
-- **Distance Metric**: Cosine distance
-- **Linkage Method**: Average linkage
-- **Auto-tuning**: Tests thresholds from 0.1 to 0.9
-- **Evaluation Metrics**: Silhouette score, Davies-Bouldin score
-
-### Candidate Selection
-- System generates top 3 clustering candidates
-- Ranked by silhouette score (higher is better)
-- Preview shows cluster sizes and sample features
-- Manual selection via frontend interface
-
----
