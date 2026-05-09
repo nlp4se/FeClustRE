@@ -1,1 +1,46 @@
-.idea
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Virtual environments and local interpreters
+.venv/
+venv/
+env/
+ENV/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Logs and runtime output
+*.log
+logs/
+tmp/
+temp/
+
+# Test and experiment outputs generated locally
+test_cache/
+evaluation_results/
+
+# Notebook and interactive tooling
+.ipynb_checkpoints/
+
+# IDE and OS metadata
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Model/cache directories when configured inside the repo
+.cache/
+models/
+model_cache/
+huggingface/
