@@ -3,7 +3,6 @@ import uuid
 
 from neo4j import GraphDatabase
 from config import Config
-from services.taxonomy_service import TaxonomyBuilder
 
 
 class Neo4jConnection:
@@ -189,8 +188,7 @@ class Neo4jConnection:
                 cluster_coherence = metrics.get("coherence", 0.0)
 
                 if str(cluster_id) not in hierarchy and taxonomy_tree:
-                    hierarchy[str(cluster_id)] = TaxonomyBuilder(self).extract_subtree_structure(feature_list,
-                                                                                                 taxonomy_tree)
+                    hierarchy[str(cluster_id)] = self._extract_subtree_structure(feature_list, taxonomy_tree)
 
                 hierarchy_info = hierarchy.get(str(cluster_id), {})
                 parent_features = hierarchy_info.get("parent_features", [])
@@ -208,6 +206,30 @@ class Neo4jConnection:
                     child_features,
                     semantic_label
                 )
+
+    @staticmethod
+    def _extract_subtree_structure(features, taxonomy_tree):
+        parent_features = set()
+        child_features = set()
+
+        for parent, children in taxonomy_tree.items():
+            if parent in features:
+                parent_features.add(parent)
+                for child in children:
+                    if child in features:
+                        child_features.add(child)
+
+        if not parent_features and not child_features:
+            sorted_features = sorted(features, key=len)
+            return {
+                "parent_features": [sorted_features[0]] if sorted_features else [],
+                "child_features": sorted_features[1:] if len(sorted_features) > 1 else []
+            }
+
+        return {
+            "parent_features": list(parent_features),
+            "child_features": list(child_features)
+        }
 
     @staticmethod
     def _create_cluster_and_features(tx, session_id, cluster_id, feature_list, avg_similarity, cluster_coherence,
@@ -251,4 +273,3 @@ class Neo4jConnection:
         # Ensure all features exist
         for feature in feature_list:
             tx.run(f"MERGE (:{feature_label} {{name: $name}})", name=feature)
-

@@ -6,7 +6,7 @@ import os
 import numpy as np
 from transformers import AutoTokenizer, AutoModelForTokenClassification, pipeline
 from sentence_transformers import SentenceTransformer
-from feature_post_processor import FeaturePostProcessor
+from services.feature_post_processor import FeaturePostProcessor
 
 from config import Config
 
