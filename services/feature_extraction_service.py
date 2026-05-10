@@ -69,15 +69,8 @@ class FeatureExtractor:
 
             elif self.model_type == 'transfeatex':
                 self.model_name = "TransfeatEx (API)"
-                use_vpn = True
-                # TODO dont hardcode use config.py
-                if use_vpn:
-                    self.transfeatex_endpoint = 'http://10.4.63.10:3004/extract-features'
-                    logger.info(f"Configured TransfeatEx VPN endpoint: {self.transfeatex_endpoint}")
-                else:
-                    self.transfeatex_endpoint = os.environ.get('TRANSFEATEX_URL',
-                                                               'http://gessi-chatbots.essi.upc.edu:3004') + '/extract-features'
-                    logger.info(f"Configured TransfeatEx original endpoint: {self.transfeatex_endpoint}")
+                self.transfeatex_endpoint = self._build_transfeatex_endpoint()
+                logger.info(f"Configured TransfeatEx endpoint: {self.transfeatex_endpoint}")
 
             elif self.model_type == 'hybrid':
                 self.model_name = "hybrid"
@@ -86,7 +79,7 @@ class FeatureExtractor:
                 self.tokenizer = AutoTokenizer.from_pretrained("quim-motger/t-frex-bert-base-uncased")
                 self.model = AutoModelForTokenClassification.from_pretrained("quim-motger/t-frex-bert-base-uncased")
                 self.ner_pipeline = pipeline("ner", model=self.model, tokenizer=self.tokenizer)
-                self.transfeatex_endpoint = 'http://10.4.63.10:3004/extract-features'
+                self.transfeatex_endpoint = self._build_transfeatex_endpoint()
                 logger.info("Hybrid model configuration complete")
 
             else:
@@ -104,6 +97,14 @@ class FeatureExtractor:
         except Exception as e:
             logger.error(f"Error initializing models: {str(e)}", exc_info=True)
             raise
+
+    @staticmethod
+    def _build_transfeatex_endpoint():
+        base_url = Config.TRANSFEATEX_URL
+        if not base_url:
+            raise ValueError("TRANSFEATEX_URL must be set to use the transfeatex or hybrid model modes")
+
+        return base_url.rstrip('/') + '/extract-features'
 
     def extract_features(self, texts):
         if not texts:

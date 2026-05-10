@@ -77,10 +77,9 @@ TRANSFEATEX_URL=http://example:3004
 LOG_LEVEL=INFO
 ```
 
-Important issue: the current `config.py` default for `NEO4J_URI` is
-`bolt://10.4.63.10:7687`, while the README and Docker Compose flow imply local
-Neo4j at `bolt://localhost:7687`. The local value should become the default for
-replication.
+The default `NEO4J_URI` is `bolt://localhost:7687`, matching the local Docker
+Compose service. Private or remote Neo4j instances should be configured through
+environment variables, not hardcoded in source.
 
 ## Local Infrastructure
 
@@ -138,13 +137,17 @@ These are current blockers or portability issues:
    `python3`.
 3. Flask is required by `app.py`, but it was not installed in the audited local
    environment.
-4. Neo4j defaults point to a private IP instead of the local Docker service.
-5. TransfeatEx is hardcoded to `http://10.4.63.10:3004/extract-features`.
-6. Heavy services are initialized at module import time in `app.py`.
-7. App startup can trigger model loading and database connection setup before a
+4. Heavy services are initialized at module import time in `app.py`.
+5. App startup can trigger model loading and database connection setup before a
    simple `/ping` request is possible.
-8. The README and test scripts reference `ChatGPT.csv`, which is not present in
+6. The README and test scripts reference `ChatGPT.csv`, which is not present in
    the current dataset.
+
+Recently repaired infrastructure issues:
+
+1. `NEO4J_URI` now defaults to `bolt://localhost:7687`.
+2. TransfeatEx now uses `TRANSFEATEX_URL` instead of a hardcoded private
+   network address.
 
 ## Target Runtime Shape
 

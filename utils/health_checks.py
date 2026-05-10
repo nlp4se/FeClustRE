@@ -5,31 +5,33 @@ import psutil
 import sys
 import os
 
+from config import Config
+
 
 def check_transfeatex():
-    use_vpn = True
-
-    if use_vpn:
-        endpoint = 'http://10.4.63.10:3004/extract-features'
-        test_input = {
-            "text": [
-                {"id": "test1", "text": "the app video camera video call chat text video send message I love"}
-            ]
+    if not Config.TRANSFEATEX_URL:
+        return {
+            "status": "unhealthy",
+            "error": "TRANSFEATEX_URL is not configured",
+            "endpoint": None
         }
-    else:
-        endpoint = 'http://gessi-chatbots.essi.upc.edu:3004/extract-features-aux'
-        test_input = {"text": "the app video camera video call chat text video send message I love"}
+
+    endpoint = Config.TRANSFEATEX_URL.rstrip('/') + '/extract-features'
+    test_input = {
+        "text": [
+            {"id": "test1", "text": "the app video camera video call chat text video send message I love"}
+        ]
+    }
 
     try:
         response = requests.post(endpoint, json=test_input, timeout=5)
         if response.status_code == 200:
-            return {"status": "healthy", "endpoint": endpoint, "endpoint_type": "VPN" if use_vpn else "Original"}
+            return {"status": "healthy", "endpoint": endpoint}
         else:
             return {"status": "unhealthy", "error": f"Unexpected status code: {response.status_code}",
-                    "endpoint": endpoint, "endpoint_type": "VPN" if use_vpn else "Original"}
+                    "endpoint": endpoint}
     except Exception as e:
-        return {"status": "unhealthy", "error": str(e), "endpoint": endpoint,
-                "endpoint_type": "VPN" if use_vpn else "Original"}
+        return {"status": "unhealthy", "error": str(e), "endpoint": endpoint}
 
 
 def check_neo4j(neo4j_conn):
