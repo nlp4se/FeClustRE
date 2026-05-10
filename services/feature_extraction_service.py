@@ -2,7 +2,6 @@ import logging
 
 import requests
 import torch
-import os
 import numpy as np
 from transformers import AutoTokenizer, AutoModelForTokenClassification, pipeline
 from sentence_transformers import SentenceTransformer
@@ -177,7 +176,7 @@ class FeatureExtractor:
 
     def _extract_features_transfeatex(self, texts):
         logger.info(f"Starting TransfeatEx extraction for {len(texts)} texts")
-        all_features = []
+        features_per_text = []
 
         def chunked(iterable, size):
             for i in range(0, len(iterable), size):
@@ -204,34 +203,44 @@ class FeatureExtractor:
 
                     if not isinstance(response_data, list):
                         logger.warning(f"Batch {batch_idx + 1}: TransfeatEx response is not a list: {response_data}")
+                        features_per_text.extend([[] for _ in batch])
                         continue
 
                     if len(response_data) != len(batch):
                         logger.warning(f"Batch {batch_idx + 1}: Response length mismatch "
                                        f"(got {len(response_data)}, expected {len(batch)})")
+                        features_per_text.extend([[] for _ in batch])
                         continue
 
                     batch_features = 0
                     for item in response_data:
                         features = item.get("features", [])
                         if isinstance(features, list):
-                            all_features.extend(features)
+                            features_per_text.append(features)
                             batch_features += len(features)
                         else:
                             logger.warning(f"Batch {batch_idx + 1}: Malformed features in response item: {item}")
+                            features_per_text.append([])
 
                     logger.debug(f"Batch {batch_idx + 1}: Extracted {batch_features} features")
 
                 else:
                     logger.error(f"Batch {batch_idx + 1}: TransfeatEx returned status {response.status_code}")
+                    features_per_text.extend([[] for _ in batch])
 
             except requests.exceptions.Timeout:
                 logger.error(f"Batch {batch_idx + 1}: TransfeatEx request timeout")
+                features_per_text.extend([[] for _ in batch])
             except Exception as e:
                 logger.error(f"Batch {batch_idx + 1}: Error contacting TransfeatEx: {str(e)}")
+                features_per_text.extend([[] for _ in batch])
 
-        logger.info(f"TransfeatEx extraction complete: {len(all_features)} total features")
-        return all_features
+        total_features = sum(len(features) for features in features_per_text)
+        logger.info(
+            f"TransfeatEx extraction complete: {total_features} features "
+            f"from {len(features_per_text)}/{len(texts)} texts"
+        )
+        return features_per_text
 
     def _extract_features_tfrex(self, texts):
         logger.info(f"Starting T-FREX extraction for {len(texts)} texts")

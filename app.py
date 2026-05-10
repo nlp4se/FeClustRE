@@ -210,7 +210,7 @@ def llm_taxonomy_metrics():
                 clustering = AgglomerativeClustering(
                     n_clusters=None,
                     distance_threshold=1 - threshold,
-                    affinity='precomputed',
+                    metric='precomputed',
                     linkage='average'
                 )
                 clusters = clustering.fit(1 - sim_matrix)
