@@ -83,28 +83,24 @@ environment variables, not hardcoded in source.
 
 ## Local Infrastructure
 
-The repository includes `docker-compose.yml` for Neo4j only.
+The repository includes a Docker Compose stack for local reproduction.
+
+Compose services:
+
+- `app`: builds and runs the Flask API on port `3000`.
+- `neo4j`: runs Neo4j `5.15` with APOC enabled and persistent volumes.
+- `ollama`: runs the Ollama server on port `11434`.
+- `ollama-pull`: one-shot service that pulls `OLLAMA_MODEL` before `app` starts.
 
 Current Compose behavior:
 
 ```bash
-docker compose up -d
+docker compose up --build
 ```
 
-This starts Neo4j with:
-
-```text
-username: neo4j
-password: 12345678
-database: neo4j
-```
-
-Ollama is not managed by Docker Compose in the current repo. It must be started
-separately:
-
-```bash
-ollama run qwen:1.8b
-```
+The `app` service waits for Neo4j to become healthy and for the Ollama model
+pull to complete. Docker Compose observes those health/dependency conditions;
+it does not replace application-level error handling.
 
 ## Repository Data
 

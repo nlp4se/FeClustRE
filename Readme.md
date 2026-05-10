@@ -11,45 +11,42 @@ This repository serves as the full **replication package** for our paper, includ
 
 ## Quick Start - Replication Package
 
-### 1. Install Dependencies
+### 1. Clone
 
 ```bash
 git clone https://github.com/your-org/feclustre.git
 cd feclustre
-pip install -r requirements.txt
 ```
 
-### 2. Start Neo4j
+### 2. Start the Reproduction Stack
 
 ```bash
-docker run -d --name neo4j \
-  -p7474:7474 -p7687:7687 \
-  -e NEO4J_AUTH=neo4j/12345678 \
-  neo4j:5.15
+docker compose up --build
 ```
 
-### 3. Start Ollama with Qwen
+This starts:
+
+- FeClustRE API on `http://localhost:3000`
+- Neo4j Browser on `http://localhost:7474`
+- Neo4j Bolt on `bolt://localhost:7687`
+- Ollama on `http://localhost:11434`
+- A one-shot Ollama model pull for `qwen:1.8b`
+
+To use another Ollama model:
 
 ```bash
-ollama run qwen:1.8b
+OLLAMA_MODEL=your-model docker compose up --build
 ```
 
-Ensure your `config.py` includes:
-
-```python
-OLLAMA_BASE_URL = "http://localhost:11434"
-OLLAMA_MODEL = "qwen:1.8b"
-```
-
-### 4. Start the Backend API Server
+### 3. Local Python Environment
 
 ```bash
-python3 app.py
+python3 -m venv .venv
+.venv/bin/python -m pip install --upgrade pip
+.venv/bin/python -m pip install -r requirements.txt
 ```
 
-The API server will be available at `http://localhost:3000`
-
-### 5. Run Systematic Experiments
+### 4. Run Systematic Experiments
 
 All experiments from the paper can be replicated using the systematic testing framework:
 
