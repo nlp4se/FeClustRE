@@ -1,6 +1,20 @@
 import argparse
 import sys
+from pathlib import Path
 from systematic_testing import SystematicTester
+
+AI_ASSISTANTS_DIR = (
+    Path(__file__).resolve().parents[1]
+    / "data"
+    / "input"
+    / "endpoint_1_process_reviews"
+    / "ai_assistants"
+)
+
+
+def ai_assistant_csv(filename):
+    return str(AI_ASSISTANTS_DIR / filename)
+
 
 def mock_test():
     print("Running mock test...")
@@ -8,8 +22,8 @@ def mock_test():
     tester = SystematicTester()
 
     csv_files = [
-        "../data/input/endpoint_1_process_reviews/ai_assistants/ChatGPT.csv",
-        "../data/input/endpoint_1_process_reviews/ai_assistants/Claude_by_Anthropic.csv",
+        ai_assistant_csv("Claude_by_Anthropic.csv"),
+        ai_assistant_csv("Perplexity_-_Ask_Anything.csv"),
     ]
 
     configurations = tester.run_full_pipeline(
@@ -34,13 +48,12 @@ def full_test():
     tester = SystematicTester()
 
     csv_files = [
-        "../data/input/endpoint_1_process_reviews/ai_assistants/ChatGPT.csv",
-        "../data/input/endpoint_1_process_reviews/ai_assistants/Claude_by_Anthropic.csv",
-        "../data/input/endpoint_1_process_reviews/ai_assistants/DeepSeek_-_AI_Assistant.csv",
-        "../data/input/endpoint_1_process_reviews/ai_assistants/Google_Gemini.csv",
-        "../data/input/endpoint_1_process_reviews/ai_assistants/Le_Chat_by_Mistral_AI.csv",
-        "../data/input/endpoint_1_process_reviews/ai_assistants/Microsoft_Copilot.csv",
-        "../data/input/endpoint_1_process_reviews/ai_assistants/Perplexity_-_Ask_Anything.csv"
+        ai_assistant_csv("Claude_by_Anthropic.csv"),
+        ai_assistant_csv("DeepSeek_-_AI_Assistant.csv"),
+        ai_assistant_csv("Google_Gemini.csv"),
+        ai_assistant_csv("Le_Chat_by_Mistral_AI.csv"),
+        ai_assistant_csv("Microsoft_Copilot.csv"),
+        ai_assistant_csv("Perplexity_-_Ask_Anything.csv")
     ]
 
     configurations = tester.run_full_pipeline(
@@ -66,13 +79,12 @@ def semantic_experiment():
     tester = SystematicTester()
 
     csv_files = [
-        "../data/input/endpoint_1_process_reviews/ai_assistants/ChatGPT.csv",
-        "../data/input/endpoint_1_process_reviews/ai_assistants/Claude_by_Anthropic.csv",
-        "../data/input/endpoint_1_process_reviews/ai_assistants/DeepSeek_-_AI_Assistant.csv",
-        "../data/input/endpoint_1_process_reviews/ai_assistants/Google_Gemini.csv",
-        "../data/input/endpoint_1_process_reviews/ai_assistants/Le_Chat_by_Mistral_AI.csv",
-        "../data/input/endpoint_1_process_reviews/ai_assistants/Microsoft_Copilot.csv",
-        "../data/input/endpoint_1_process_reviews/ai_assistants/Perplexity_-_Ask_Anything.csv"
+        ai_assistant_csv("Claude_by_Anthropic.csv"),
+        ai_assistant_csv("DeepSeek_-_AI_Assistant.csv"),
+        ai_assistant_csv("Google_Gemini.csv"),
+        ai_assistant_csv("Le_Chat_by_Mistral_AI.csv"),
+        ai_assistant_csv("Microsoft_Copilot.csv"),
+        ai_assistant_csv("Perplexity_-_Ask_Anything.csv")
     ]
 
     configurations = tester.run_full_pipeline(

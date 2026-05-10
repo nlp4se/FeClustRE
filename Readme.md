@@ -44,7 +44,7 @@ OLLAMA_MODEL = "qwen:1.8b"
 ### 4. Start the Backend API Server
 
 ```bash
-python app.py
+python3 app.py
 ```
 
 The API server will be available at `http://localhost:3000`
@@ -55,33 +55,33 @@ All experiments from the paper can be replicated using the systematic testing fr
 
 ```bash
 # Mock test (quick validation with 2 apps, small samples)
-python test_config.py mock
+python3 test/test_config.py mock
 
 # Full comprehensive test (all apps, multiple configurations)
-python test_config.py full
+python3 test/test_config.py full
 
 # Semantic experiment (hybrid model, maximum data, balanced strategy)
-python test_config.py semantic
+python3 test/test_config.py semantic
 ```
 
 #### Experiment Configurations
 
 **Mock Test:**
-- Apps: ChatGPT, Claude by Anthropic
+- Apps: Claude by Anthropic, Perplexity
 - Models: transfeatex, t-frex, hybrid
 - Embeddings: allmini, sentence-t5
 - Sample sizes: 10, 20, 50
 - Strategies: balanced, silhouette, conservative
 
 **Full Test:**
-- Apps: All 7 AI assistants (ChatGPT, Claude, DeepSeek, Gemini, Le Chat, Copilot, Perplexity)
+- Apps: All 6 included AI assistants (Claude, DeepSeek, Gemini, Le Chat, Copilot, Perplexity)
 - Models: t-frex, transfeatex, hybrid
 - Embeddings: allmini, sentence-t5
 - Sample sizes: 1000, 2000, 5000, 50000
 - Strategies: balanced, silhouette, conservative
 
 **Semantic Experiment:**
-- Apps: All 7 AI assistants
+- Apps: All 6 included AI assistants
 - Models: hybrid
 - Embeddings: allmini
 - Sample sizes: No limit (all available reviews)
@@ -94,7 +94,6 @@ python test_config.py semantic
 The dataset is available in `/data/input/endpoint_1_process_reviews/` directory with two categories:
 
 ### AI Assistants (`/data/input/endpoint_1_process_reviews/ai_assistants/`)
-- ChatGPT.csv
 - Claude_by_Anthropic.csv
 - DeepSeek_-_AI_Assistant.csv
 - Google_Gemini.csv
