@@ -3,8 +3,6 @@ from sklearn.cluster import AgglomerativeClustering
 from collections import defaultdict
 import numpy as np
 import re
-import psutil
-import torch
 from flask import Flask, request, jsonify
 import csv
 import logging
@@ -83,6 +81,32 @@ def ping():
 
 @app.route('/health')
 def health_check():
+    system_status = {"python_version": sys.version}
+
+    try:
+        import psutil
+
+        system_status.update({
+            "cpu_usage": psutil.cpu_percent(),
+            "memory_usage": psutil.virtual_memory().percent,
+            "disk_usage": psutil.disk_usage('/').percent,
+        })
+    except Exception as e:
+        system_status["resource_monitoring_error"] = str(e)
+
+    try:
+        import torch
+
+        system_status["torch_version"] = torch.__version__
+        if torch.cuda.is_available():
+            system_status["cuda_device"] = torch.cuda.get_device_name(0)
+            system_status["cuda_memory"] = {
+                "allocated": torch.cuda.memory_allocated(0),
+                "reserved": torch.cuda.memory_reserved(0)
+            }
+    except Exception as e:
+        system_status["torch_error"] = str(e)
+
     health_status = {
         "timestamp": datetime.now().isoformat(),
         "services": {
@@ -95,21 +119,8 @@ def health_check():
             "embeddings": check_embedding_model(get_default_feature_extractor()),
             "transfeatex": check_transfeatex()
         },
-        "system": {
-            "python_version": sys.version,
-            "cpu_usage": psutil.cpu_percent(),
-            "memory_usage": psutil.virtual_memory().percent,
-            "disk_usage": psutil.disk_usage('/').percent,
-            "torch_version": torch.__version__
-        }
+        "system": system_status
     }
-
-    if torch.cuda.is_available():
-        health_status["system"]["cuda_device"] = torch.cuda.get_device_name(0)
-        health_status["system"]["cuda_memory"] = {
-            "allocated": torch.cuda.memory_allocated(0),
-            "reserved": torch.cuda.memory_reserved(0)
-        }
 
     all_statuses = list(health_status["services"].values()) + list(health_status["models"].values())
     health_status["status"] = "healthy" if all(s["status"] == "healthy" for s in all_statuses) else "unhealthy"

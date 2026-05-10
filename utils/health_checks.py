@@ -1,9 +1,5 @@
 import nltk
-import torch
 import requests
-import psutil
-import sys
-import os
 
 from config import Config
 
