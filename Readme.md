@@ -55,7 +55,58 @@ For notebook and visualisation work install the dev dependencies instead:
 .venv/bin/python -m pip install -r requirements-dev.txt
 ```
 
-### 4. Run Systematic Experiments
+### 4. Start Services and API (non-Docker)
+
+If you are running without Docker Compose, start services in this order:
+
+**1. Neo4j**
+
+```bash
+# Option A: Docker only Neo4j
+docker run -d --name neo4j \
+  -e NEO4J_AUTH=neo4j/12345678 \
+  -p 7474:7474 -p 7687:7687 \
+  neo4j:5.15
+
+# Option B: existing Neo4j installation — just start it
+```
+
+**2. Ollama**
+
+```bash
+ollama serve &
+ollama pull qwen:1.8b
+```
+
+**3. Environment**
+
+Copy `.env.example` to `.env` and adjust values if needed:
+
+```bash
+cp .env.example .env
+```
+
+**4. Flask API**
+
+```bash
+.venv/bin/python app.py
+```
+
+The API starts on `http://localhost:3000`.
+
+Verify the process is alive:
+
+```bash
+curl http://localhost:3000/ping
+```
+
+Check dependency status:
+
+```bash
+curl http://localhost:3000/health
+```
+
+### 5. Run Systematic Experiments
 
 All experiments from the paper can be replicated using the systematic testing framework:
 
