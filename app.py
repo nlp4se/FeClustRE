@@ -107,17 +107,38 @@ def health_check():
     except Exception as e:
         system_status["torch_error"] = str(e)
 
+    def _safe(fn, *args, label=""):
+        try:
+            return fn(*args)
+        except Exception as exc:
+            return {"status": "unhealthy", "error": str(exc)}
+
+    try:
+        neo4j_conn = get_neo4j_connection()
+        neo4j_status = _safe(check_neo4j, neo4j_conn)
+    except Exception as exc:
+        neo4j_status = {"status": "unhealthy", "error": str(exc)}
+
+    try:
+        extractor = get_default_feature_extractor()
+        tfrex_status = _safe(check_tfrex_model, extractor)
+        embeddings_status = _safe(check_embedding_model, extractor)
+    except Exception as exc:
+        err = {"status": "unhealthy", "error": str(exc)}
+        tfrex_status = err
+        embeddings_status = err
+
     health_status = {
         "timestamp": datetime.now().isoformat(),
         "services": {
-            "neo4j": check_neo4j(get_neo4j_connection()),
-            "nltk": check_nltk_data(),
-            "ollama": check_ollama(app.config),
+            "neo4j": neo4j_status,
+            "nltk": _safe(check_nltk_data),
+            "ollama": _safe(check_ollama, app.config),
         },
         "models": {
-            "tfrex": check_tfrex_model(get_default_feature_extractor()),
-            "embeddings": check_embedding_model(get_default_feature_extractor()),
-            "transfeatex": check_transfeatex()
+            "tfrex": tfrex_status,
+            "embeddings": embeddings_status,
+            "transfeatex": _safe(check_transfeatex),
         },
         "system": system_status
     }
