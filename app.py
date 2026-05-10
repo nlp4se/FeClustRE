@@ -12,30 +12,68 @@ import sys
 from datetime import datetime
 from collections import Counter
 
-from services.neo4j_service import Neo4jConnection
-from services.preprocessing_service import ReviewPreprocessor
-from services.feature_extraction_service import FeatureExtractor
-from services.clustering_service import HierarchicalClusterer
-from services.taxonomy_service import TaxonomyBuilder
 from config import config
 from utils.health_checks import (
     check_transfeatex, check_tfrex_model, check_embedding_model,
     check_nltk_data, check_ollama, check_neo4j
 )
 
-# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = Flask(__name__)
-app.config.from_object(config['default'])
+_services = {}
 
-# Initialize services
-neo4j_conn = Neo4jConnection()
-preprocessor = ReviewPreprocessor()
-feature_extractor = FeatureExtractor(enable_postprocessing=True)
-clusterer = HierarchicalClusterer()
-taxonomy_builder = TaxonomyBuilder(neo4j_conn, feature_extractor)
+
+def create_app(config_object=None):
+    flask_app = Flask(__name__)
+    flask_app.config.from_object(config_object or config['default'])
+    return flask_app
+
+
+app = create_app()
+
+
+def get_neo4j_connection():
+    if "neo4j_conn" not in _services:
+        from services.neo4j_service import Neo4jConnection
+
+        _services["neo4j_conn"] = Neo4jConnection()
+    return _services["neo4j_conn"]
+
+
+def get_preprocessor():
+    if "preprocessor" not in _services:
+        from services.preprocessing_service import ReviewPreprocessor
+
+        _services["preprocessor"] = ReviewPreprocessor()
+    return _services["preprocessor"]
+
+
+def get_clusterer():
+    if "clusterer" not in _services:
+        from services.clustering_service import HierarchicalClusterer
+
+        _services["clusterer"] = HierarchicalClusterer()
+    return _services["clusterer"]
+
+
+def get_default_feature_extractor():
+    if "default_feature_extractor" not in _services:
+        from services.feature_extraction_service import FeatureExtractor
+
+        _services["default_feature_extractor"] = FeatureExtractor(enable_postprocessing=True)
+    return _services["default_feature_extractor"]
+
+
+def get_taxonomy_builder():
+    if "taxonomy_builder" not in _services:
+        from services.taxonomy_service import TaxonomyBuilder
+
+        _services["taxonomy_builder"] = TaxonomyBuilder(
+            get_neo4j_connection(),
+            get_default_feature_extractor()
+        )
+    return _services["taxonomy_builder"]
 
 
 @app.route('/ping')
@@ -48,13 +86,13 @@ def health_check():
     health_status = {
         "timestamp": datetime.now().isoformat(),
         "services": {
-            "neo4j": check_neo4j(neo4j_conn),
+            "neo4j": check_neo4j(get_neo4j_connection()),
             "nltk": check_nltk_data(),
             "ollama": check_ollama(app.config),
         },
         "models": {
-            "tfrex": check_tfrex_model(feature_extractor),
-            "embeddings": check_embedding_model(feature_extractor),
+            "tfrex": check_tfrex_model(get_default_feature_extractor()),
+            "embeddings": check_embedding_model(get_default_feature_extractor()),
             "transfeatex": check_transfeatex()
         },
         "system": {
@@ -84,7 +122,7 @@ def health_check():
 def llm_taxonomy_metrics():
     try:
         # Step 1: Fetch comprehensive taxonomy data
-        with neo4j_conn.driver.session(database=neo4j_conn.database) as session:
+        with get_neo4j_connection().driver.session(database=get_neo4j_connection().database) as session:
             root_results = session.run("""
                 MATCH (root:MiniTaxonomyNode)
                 WHERE NOT (()-[:HAS_CHILD]->(root)) AND root.llm_tag IS NOT NULL
@@ -198,7 +236,7 @@ def llm_taxonomy_metrics():
 
         distinct_tags = list(set(tags))
         if len(distinct_tags) >= 2:
-            embeddings = feature_extractor.get_embeddings(distinct_tags)
+            embeddings = get_default_feature_extractor().get_embeddings(distinct_tags)
             tag_to_index = {tag: i for i, tag in enumerate(distinct_tags)}
             sim_matrix = cosine_similarity(embeddings)
 
@@ -440,9 +478,9 @@ def save_selected_clustering(app_name):
         clusters = clustering_result.get("clusters", {})
         logger.info(f"Generating semantic labels for {len(clusters)} clusters in '{app_name}'...")
 
-        labels = taxonomy_builder.store_llm_taxonomy(app_name, clusters, method="llm-clustering")
+        labels = get_taxonomy_builder().store_llm_taxonomy(app_name, clusters, method="llm-clustering")
 
-        merge_results = taxonomy_builder.merge_mini_taxonomies(app_name)
+        merge_results = get_taxonomy_builder().merge_mini_taxonomies(app_name)
 
         logger.info(f"Clustering result saved for '{app_name}'.")
         return jsonify({
@@ -497,7 +535,7 @@ def _process_app_reviews(app_name, reviews, extractor):
 
     for review in reviews:
         original_text = review.get('review', '')
-        processed_text = preprocessor.preprocess_text(original_text)
+        processed_text = get_preprocessor().preprocess_text(original_text)
 
         # Handle score safely
         score = review.get('score')
@@ -523,12 +561,12 @@ def _process_app_reviews(app_name, reviews, extractor):
 
 def _store_app_data(app_name, app_data, processed_reviews, features_per_review):
     # Create app node
-    neo4j_conn.create_app_node(app_name, app_data['package'], app_data['category'])
+    get_neo4j_connection().create_app_node(app_name, app_data['package'], app_data['category'])
 
     # Store reviews with features
     for i, review_data in enumerate(processed_reviews):
         review_features = features_per_review[i] if i < len(features_per_review) else []
-        neo4j_conn.create_review_with_features(
+        get_neo4j_connection().create_review_with_features(
             app_name,
             review_data['review_id'],
             review_data['processed_text'],
@@ -579,7 +617,7 @@ def _perform_clustering_analysis(app_name, unique_features, taxonomy_tree=None, 
 
     logger.info("Performing hierarchical clustering with active learning...")
     feature_embeddings = extractor.get_embeddings(unique_features)
-    tuning_result = clusterer.auto_tune_clustering(unique_features, feature_embeddings)
+    tuning_result = get_clusterer().auto_tune_clustering(unique_features, feature_embeddings)
     best_options = tuning_result['best_options']
 
     clustering_candidates = []
@@ -587,13 +625,13 @@ def _perform_clustering_analysis(app_name, unique_features, taxonomy_tree=None, 
         clustering_data = option['clustering']
         clustering_data['metrics'] = option['metrics']
         clustering_data['height_threshold'] = option['threshold']
-        clustering_data['sibling_threshold'] = clusterer.sibling_threshold
+        clustering_data['sibling_threshold'] = get_clusterer().sibling_threshold
         clustering_data = convert_numpy_types(clustering_data)
 
         if taxonomy_tree:
             clustering_data["hierarchy"] = {}
             for cluster_id, cluster_features in clustering_data["clusters"].items():
-                clustering_data["hierarchy"][str(cluster_id)] = taxonomy_builder._extract_subtree_structures(
+                clustering_data["hierarchy"][str(cluster_id)] = get_taxonomy_builder()._extract_subtree_structures(
                     cluster_features, taxonomy_tree
                 )
 
@@ -632,8 +670,11 @@ def _perform_clustering_analysis(app_name, unique_features, taxonomy_tree=None, 
 
 def _build_taxonomy(app_name, unique_features, method="bert", feature_extractor=None):
     if len(unique_features) >= 4:
+        if feature_extractor is None:
+            feature_extractor = get_default_feature_extractor()
+
         feature_embeddings = feature_extractor.get_embeddings(unique_features)
-        return taxonomy_builder.build_and_store_taxonomy(app_name, unique_features, feature_embeddings, method=method)
+        return get_taxonomy_builder().build_and_store_taxonomy(app_name, unique_features, feature_embeddings, method=method)
     return None
 
 
@@ -709,6 +750,8 @@ def convert_numpy_types(obj):
 
 
 def get_feature_extractor():
+    from services.feature_extraction_service import FeatureExtractor
+
     model_type = request.args.get("model_type", "tfrex").lower()
     enable_postprocessing = request.args.get("enable_postprocessing", "true").lower() == "true"
     return FeatureExtractor(model_type=model_type, enable_postprocessing=enable_postprocessing)
@@ -716,7 +759,7 @@ def get_feature_extractor():
 @app.route('/mini_taxonomies/<app_name>', methods=['GET'])
 def get_mini_taxonomies(app_name):
     try:
-        taxonomies = taxonomy_builder.get_mini_taxonomies_for_app(app_name)
+        taxonomies = get_taxonomy_builder().get_mini_taxonomies_for_app(app_name)
 
         return jsonify({
             "status": "success",
