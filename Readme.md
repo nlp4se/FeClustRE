@@ -146,6 +146,51 @@ python3 test/test_config.py semantic
 
 ---
 
+## Troubleshooting
+
+### Ollama model not found
+
+`/health` reports `"error": "Model 'qwen:1.8b' not found in Ollama"`.
+
+```bash
+ollama pull qwen:1.8b
+```
+
+The first pull downloads ~1 GB and takes a few minutes. The app will start fine
+while the pull is in progress — only label generation will fail until the model
+is available.
+
+### Neo4j authentication failure
+
+`/health` reports `"error": "Cannot connect to Neo4j"`.
+
+Check that the values in `.env` match your Neo4j instance:
+
+```
+NEO4J_URI=bolt://localhost:7687
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=12345678
+```
+
+If you changed the password when starting Neo4j, update `NEO4J_PASSWORD` to match.
+
+### TransfeatEx unavailable
+
+`/health` reports `"status": "unhealthy"` for `transfeatex`. This is expected
+unless you have access to a running TransfeatEx service. Set `TRANSFEATEX_URL`
+in `.env` to the service address, or leave it empty to skip TransfeatEx.
+Experiments that specify `model: transfeatex` or `model: hybrid` will fail fast
+with a clear error if the URL is not configured.
+
+### First model download is slow
+
+T-FREX (`quim-motger/t-frex-bert-base-uncased`) and the sentence-transformer
+embedding model are downloaded from Hugging Face on first use. This can take
+several minutes. The download is cached in `~/.cache/huggingface/` and is only
+needed once.
+
+---
+
 ## Dataset
 
 The dataset is available in `/data/input/endpoint_1_process_reviews/` directory with two categories:
