@@ -120,11 +120,9 @@ class TaxonomyBuilder:
 
         with self.neo4j_conn.driver.session(database=self.neo4j_conn.database) as session:
             node_counter = [0]
-            # Create app-specific root ID
-            root_id = f"taxonomy_node_{app_name}_{timestamp}_{node_counter[0]}"
             session.write_transaction(
                 self._create_taxonomy_tree_with_app_link,
-                tree_root, features, session_id, app_name, method, node_counter, root_id=root_id
+                tree_root, features, session_id, app_name, method, node_counter
             )
 
         best_cut, top_results = self._tune_subcluster_cut(linkage_matrix, features, embeddings)
@@ -145,7 +143,7 @@ class TaxonomyBuilder:
             session.write_transaction(self._store_subclusters, app_name, session_id, selected_subclusters)
 
     def _create_taxonomy_tree_with_app_link(self, tx, node, features, session_id, app_name, method, node_counter,
-                                            parent_id=None, root_id=None):
+                                            parent_id=None):
         is_leaf = node.is_leaf()
         feature = features[node.id] if is_leaf else None
 
@@ -169,19 +167,19 @@ class TaxonomyBuilder:
                 CREATE (p)-[:HAS_CHILD]->(c)
             """, parent_id=parent_id, child_id=node_id)
 
-        if node_id == root_id:
+        if parent_id is None:
             tx.run("""
                 MATCH (a:App {name: $app_name})
-                MATCH (root:TaxonomyNode {id: $root_id, app_name: $app_name})
+                MATCH (root:TaxonomyNode {id: $node_id, app_name: $app_name})
                 MERGE (a)-[:HAS_TAXONOMY {method: $method}]->(root)
-            """, app_name=app_name, root_id=root_id, method=method)
+            """, app_name=app_name, node_id=node_id, method=method)
 
         if node.left:
             self._create_taxonomy_tree_with_app_link(tx, node.left, features, session_id, app_name, method,
-                                                     node_counter, node_id, root_id)
+                                                     node_counter, node_id)
         if node.right:
             self._create_taxonomy_tree_with_app_link(tx, node.right, features, session_id, app_name, method,
-                                                     node_counter, node_id, root_id)
+                                                     node_counter, node_id)
 
     def _cut_tree(self, linkage_matrix, features, height_threshold):
         cluster_assignments = fcluster(linkage_matrix, t=height_threshold, criterion='distance')
