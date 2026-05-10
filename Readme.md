@@ -40,10 +40,19 @@ OLLAMA_MODEL=your-model docker compose up --build
 
 ### 3. Local Python Environment
 
+Requires **Python 3.10**. ML packages (torch, transformers, sentence-transformers) are pinned to
+versions that are tested on Python 3.10. Python 3.11 may work but is not validated.
+
 ```bash
-python3 -m venv .venv
+python3.10 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
 .venv/bin/python -m pip install -r requirements.txt
+```
+
+For notebook and visualisation work install the dev dependencies instead:
+
+```bash
+.venv/bin/python -m pip install -r requirements-dev.txt
 ```
 
 ### 4. Run Systematic Experiments
