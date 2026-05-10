@@ -47,7 +47,7 @@ class SystematicTester:
         self.session_id = self.session_data['session_id']
         logger.info(f"Loaded session: {self.session_id}")
 
-    def process_csv_smart(self, csv_file, model_type='tfrex', sample_size=None, embedding_type='allmini', skip_processing=False):
+    def process_csv_smart(self, csv_file, model_type='t-frex', sample_size=None, embedding_type='allmini', skip_processing=False):
         csv_path = Path(csv_file)
         cache_key = f"{csv_path.stem}_{model_type}_{embedding_type}_{sample_size}_{hash(csv_path.stat().st_mtime)}"
         cache_file = self.cache_dir / f"{cache_key}.json"
@@ -197,7 +197,7 @@ class SystematicTester:
         return saved_results
 
     def run_full_pipeline(self,
-                          csv_files, model_types=['tfrex'],
+                          csv_files, model_types=['t-frex'],
                           embedding_types=['allmini'],
                           sample_sizes=[1000],
                           selection_strategies=['balanced'],

@@ -110,7 +110,7 @@ def main():
                         help='Test mode to run')
     parser.add_argument('--session-file', type=str, help='Session file to resume (for resume mode)')
     parser.add_argument('--csv-files', nargs='+', help='CSV files to process (for custom mode)')
-    parser.add_argument('--models', nargs='+', default=['tfrex'], help='Models to test')
+    parser.add_argument('--models', nargs='+', default=['t-frex'], help='Models to test')
     parser.add_argument('--samples', nargs='+', type=int, default=[1000], help='Sample sizes to test')
     parser.add_argument('--strategies', nargs='+', default=['balanced'], help='Selection strategies')
 

@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 class FeatureExtractor:
     def __init__(self, model_type='t-frex', embedding_model='allmini', enable_postprocessing=True):
-        self.model_type = model_type.lower()
+        self.model_type = self._normalize_model_type(model_type)
         self.embedding_model_key = embedding_model
         self.tokenizer = None
         self.model = None
@@ -42,6 +42,17 @@ class FeatureExtractor:
         self._initialize_models()
         self.batch_size = 100
         logger.info(f"FeatureExtractor initialization complete, batch_size={self.batch_size}")
+
+    @staticmethod
+    def _normalize_model_type(model_type):
+        aliases = {
+            'tfrex': 't-frex',
+            't_frex': 't-frex',
+            'transfeat-ex': 'transfeatex',
+            'transfeat_ex': 'transfeatex',
+        }
+        normalized = (model_type or 't-frex').strip().lower()
+        return aliases.get(normalized, normalized)
 
     def _initialize_models(self):
         try:

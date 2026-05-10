@@ -752,7 +752,7 @@ def convert_numpy_types(obj):
 def get_feature_extractor():
     from services.feature_extraction_service import FeatureExtractor
 
-    model_type = request.args.get("model_type", "tfrex").lower()
+    model_type = request.args.get("model_type", "t-frex").lower()
     enable_postprocessing = request.args.get("enable_postprocessing", "true").lower() == "true"
     return FeatureExtractor(model_type=model_type, enable_postprocessing=enable_postprocessing)
 
