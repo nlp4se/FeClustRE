@@ -25,12 +25,13 @@ class HealthEndpointSmokeTests(unittest.TestCase):
 
     def _mock_unhealthy_services(self):
         unhealthy = {"status": "unhealthy", "error": "unavailable"}
+        # _services is cleared in setUp so models are "not_initialized" by default —
+        # no need to patch the extractor getter here.
         patcher_neo4j = patch("app.get_neo4j_connection", side_effect=Exception("no neo4j"))
-        patcher_extractor = patch("app.get_default_feature_extractor", side_effect=Exception("no model"))
         patcher_nltk = patch("app.check_nltk_data", return_value=unhealthy)
         patcher_ollama = patch("app.check_ollama", return_value=unhealthy)
         patcher_transfeatex = patch("app.check_transfeatex", return_value=unhealthy)
-        return [patcher_neo4j, patcher_extractor, patcher_nltk, patcher_ollama, patcher_transfeatex]
+        return [patcher_neo4j, patcher_nltk, patcher_ollama, patcher_transfeatex]
 
     def test_health_returns_json(self):
         patchers = self._mock_unhealthy_services()
@@ -94,6 +95,34 @@ class HealthEndpointSmokeTests(unittest.TestCase):
         finally:
             for p in patchers:
                 p.stop()
+
+    def test_health_does_not_trigger_model_loading(self):
+        # _services is empty — /health must NOT call get_default_feature_extractor()
+        # and must NOT block on HF downloads.
+        with patch("app.get_neo4j_connection", side_effect=Exception("no neo4j")), \
+             patch("app.check_nltk_data", return_value={"status": "healthy"}), \
+             patch("app.check_ollama", return_value={"status": "healthy"}), \
+             patch("app.check_transfeatex", return_value={"status": "healthy"}), \
+             patch("app.get_default_feature_extractor") as mock_loader:
+            response = self.client.get("/health")
+            mock_loader.assert_not_called()
+
+        body = json.loads(response.data)
+        self.assertEqual(body["models"]["tfrex"]["status"], "not_initialized")
+        self.assertEqual(body["models"]["embeddings"]["status"], "not_initialized")
+
+    def test_health_returns_200_when_models_not_yet_loaded(self):
+        # not_initialized is neutral — should not force 503
+        with patch("app.get_neo4j_connection", side_effect=Exception("no neo4j")), \
+             patch("app.check_nltk_data", return_value={"status": "healthy"}), \
+             patch("app.check_ollama", return_value={"status": "healthy"}), \
+             patch("app.check_transfeatex", return_value={"status": "healthy"}):
+            response = self.client.get("/health")
+
+        # neo4j is unhealthy so overall is still 503, but model not_initialized
+        # is treated as neutral, not an additional failure
+        body = json.loads(response.data)
+        self.assertIn(body["models"]["tfrex"]["status"], ("healthy", "not_initialized"))
 
 
 @unittest.skipIf(not _flask_available, "Flask is not installed")

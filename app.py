@@ -119,14 +119,21 @@ def health_check():
     except Exception as exc:
         neo4j_status = {"status": "unhealthy", "error": str(exc)}
 
-    try:
-        extractor = get_default_feature_extractor()
-        tfrex_status = _safe(check_tfrex_model, extractor)
-        embeddings_status = _safe(check_embedding_model, extractor)
-    except Exception as exc:
-        err = {"status": "unhealthy", "error": str(exc)}
-        tfrex_status = err
-        embeddings_status = err
+    # Do NOT call get_default_feature_extractor() here — it triggers a blocking
+    # model download on first use. Only check models that are already loaded.
+    if "default_feature_extractor" in _services:
+        try:
+            extractor = _services["default_feature_extractor"]
+            tfrex_status = _safe(check_tfrex_model, extractor)
+            embeddings_status = _safe(check_embedding_model, extractor)
+        except Exception as exc:
+            err = {"status": "unhealthy", "error": str(exc)}
+            tfrex_status = err
+            embeddings_status = err
+    else:
+        not_loaded = {"status": "not_initialized", "message": "models not yet loaded"}
+        tfrex_status = not_loaded
+        embeddings_status = not_loaded
 
     health_status = {
         "timestamp": datetime.now().isoformat(),
@@ -144,7 +151,10 @@ def health_check():
     }
 
     all_statuses = list(health_status["services"].values()) + list(health_status["models"].values())
-    health_status["status"] = "healthy" if all(s["status"] == "healthy" for s in all_statuses) else "unhealthy"
+    # "not_initialized" is neutral — models load on first use, not at startup
+    health_status["status"] = "healthy" if all(
+        s["status"] in ("healthy", "not_initialized") for s in all_statuses
+    ) else "unhealthy"
     status_code = 200 if health_status["status"] == "healthy" else 503
 
     return jsonify(health_status), status_code
