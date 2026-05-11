@@ -1,4 +1,26 @@
 services:
+  hf-pull:
+    build:
+      context: .
+    container_name: feclustre-hf-pull
+    environment:
+      HF_HOME: /hf-cache
+      TRANSFORMERS_CACHE: /hf-cache
+    volumes:
+      - hf_cache:/hf-cache
+    command: >
+      python -c "
+      from transformers import AutoTokenizer, AutoModelForTokenClassification;
+      from sentence_transformers import SentenceTransformer;
+      print('Downloading T-FREX model...', flush=True);
+      AutoTokenizer.from_pretrained('quim-motger/t-frex-bert-base-uncased');
+      AutoModelForTokenClassification.from_pretrained('quim-motger/t-frex-bert-base-uncased');
+      print('Downloading embedding model...', flush=True);
+      SentenceTransformer('all-MiniLM-L6-v2');
+      print('All models ready.', flush=True)
+      "
+    restart: "no"
+
   app:
     build:
       context: .
@@ -15,10 +37,16 @@ services:
       OLLAMA_BASE_URL: http://ollama:11434
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen:1.8b}
       TRANSFEATEX_URL: ${TRANSFEATEX_URL:-}
+      HF_HOME: /hf-cache
+      TRANSFORMERS_CACHE: /hf-cache
+    volumes:
+      - hf_cache:/hf-cache
     depends_on:
       neo4j:
         condition: service_healthy
       ollama-pull:
+        condition: service_completed_successfully
+      hf-pull:
         condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:3000/ping', timeout=5).read()\""]
@@ -79,3 +107,4 @@ volumes:
   neo4j_data:
   neo4j_logs:
   ollama_data:
+  hf_cache:
