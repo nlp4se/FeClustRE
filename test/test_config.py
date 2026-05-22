@@ -46,16 +46,27 @@ def resolve_csv_files(dataset, custom_files=None):
     return [str(AI_ASSISTANTS_DIR / f) for f in _AI_ASSISTANT_FILES]
 
 
-def mock_test(csv_files):
+def mock_test(csv_files, dataset='ai_assistants'):
     print("Running mock test...")
 
     tester = SystematicTester()
 
+    # For the aggregated mobile_apps CSV (100 apps in one file) the per-app
+    # share of a 10-50 row sample collapses to 1 review per app, which is not
+    # enough for meaningful feature extraction.  Use sizes that guarantee at
+    # least ~5 reviews per app.
+    if dataset == 'mobile_apps':
+        sample_sizes = [500, 2000]
+        files = csv_files  # single aggregated file — no slicing needed
+    else:
+        sample_sizes = [10, 20, 50]
+        files = csv_files[:2]  # limit to first two per-app files for speed
+
     configurations = tester.run_full_pipeline(
-        csv_files=csv_files[:2],  # limit to first two files/apps for speed
+        csv_files=files,
         model_types=['transfeatex', 't-frex', 'hybrid'],
         embedding_types=['allmini', 'sentence-t5'],
-        sample_sizes=[10, 20, 50],
+        sample_sizes=sample_sizes,
         selection_strategies=['balanced', 'silhouette', 'conservative']
     )
 
@@ -135,7 +146,7 @@ def main():
 
     try:
         if args.mode == 'mock':
-            session_id = mock_test(csv_files)
+            session_id = mock_test(csv_files, dataset=args.dataset)
         elif args.mode == 'full':
             session_id = full_test(csv_files)
         elif args.mode == 'semantic':
