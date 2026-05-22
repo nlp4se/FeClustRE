@@ -277,6 +277,16 @@ class TaxonomyBuilder:
         }
 
     def store_llm_taxonomy(self, app_name, clusters, method="llm-clustering"):
+        # Remove all existing mini taxonomy trees for this app before writing the
+        # new ones.  Without this, repeated saves (e.g. across experiment configs)
+        # accumulate duplicate nodes in the graph.
+        with self.neo4j_conn.driver.session(database=self.neo4j_conn.database) as session:
+            session.write_transaction(lambda tx: tx.run("""
+                MATCH (a:App {name: $app_name})-[:HAS_MINI_TAXONOMY]->(root:MiniTaxonomyNode)
+                OPTIONAL MATCH (root)-[:HAS_CHILD*]->(child:MiniTaxonomyNode)
+                DETACH DELETE root, child
+            """, app_name=app_name))
+
         # Create app-specific session ID with unique identifier
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         unique_id = uuid.uuid4().hex[:8]
