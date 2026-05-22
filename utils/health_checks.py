@@ -7,8 +7,8 @@ from config import Config
 def check_transfeatex():
     if not Config.TRANSFEATEX_URL:
         return {
-            "status": "unhealthy",
-            "error": "TRANSFEATEX_URL is not configured",
+            "status": "not_configured",
+            "message": "TRANSFEATEX_URL is not set; transfeatex and hybrid modes unavailable",
             "endpoint": None
         }
 

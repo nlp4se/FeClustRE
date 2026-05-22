@@ -151,10 +151,10 @@ def health_check():
     }
 
     all_statuses = list(health_status["services"].values()) + list(health_status["models"].values())
-    # "not_initialized" is neutral — models load on first use, not at startup
-    health_status["status"] = "healthy" if all(
-        s["status"] in ("healthy", "not_initialized") for s in all_statuses
-    ) else "unhealthy"
+    # "not_initialized" — models load on first use, not at startup
+    # "not_configured" — optional service (e.g. TransfeatEx) not set up; T-FREX mode still works
+    neutral = {"healthy", "not_initialized", "not_configured"}
+    health_status["status"] = "healthy" if all(s["status"] in neutral for s in all_statuses) else "unhealthy"
     status_code = 200 if health_status["status"] == "healthy" else 503
 
     return jsonify(health_status), status_code
