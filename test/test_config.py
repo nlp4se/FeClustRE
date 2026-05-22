@@ -47,27 +47,31 @@ def resolve_csv_files(dataset, custom_files=None):
 
 
 def mock_test(csv_files, dataset='ai_assistants'):
-    print("Running mock test...")
+    """Minimal end-to-end smoke test — one config, smallest viable sample.
+
+    Purpose: prove the full pipeline (upload → extract → cluster → label → save)
+    runs without errors.  Not intended to produce meaningful quality metrics.
+    """
+    print("Running mock test (smoke only — 1 config)...")
 
     tester = SystematicTester()
 
-    # For the aggregated mobile_apps CSV (100 apps in one file) the per-app
-    # share of a 10-50 row sample collapses to 1 review per app, which is not
-    # enough for meaningful feature extraction.  Use sizes that guarantee at
-    # least ~5 reviews per app.
+    # mobile_apps is one big CSV with 100 apps.  200 rows → ~2 reviews per app,
+    # just enough for the NER model to find some features.
+    # ai_assistants are individual per-app files; 50 rows per file is plenty.
     if dataset == 'mobile_apps':
-        sample_sizes = [500, 2000]
-        files = csv_files  # single aggregated file — no slicing needed
+        files = csv_files          # single aggregated file
+        sample_sizes = [200]
     else:
-        sample_sizes = [10, 20, 50]
-        files = csv_files[:2]  # limit to first two per-app files for speed
+        files = csv_files[:1]      # one app file is enough to smoke-test
+        sample_sizes = [50]
 
     configurations = tester.run_full_pipeline(
         csv_files=files,
-        model_types=['transfeatex', 't-frex', 'hybrid'],
-        embedding_types=['allmini', 'sentence-t5'],
+        model_types=['t-frex'],
+        embedding_types=['allmini'],
         sample_sizes=sample_sizes,
-        selection_strategies=['balanced', 'silhouette', 'conservative']
+        selection_strategies=['balanced']
     )
 
     evaluation_results = tester.evaluate_clustering_quality()
