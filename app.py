@@ -427,65 +427,6 @@ def analyze_taxonomy_content_quality(structure_data):
     return content_metrics
 
 
-def generate_taxonomy_recommendations(duplicate_tags, low_quality_tags, similar_pairs,
-                                      structure_metrics, content_analysis):
-    recommendations = []
-
-    # Duplicate tag recommendations
-    if duplicate_tags:
-        recommendations.append({
-            "type": "duplicates",
-            "priority": "high",
-            "message": f"Found {len(duplicate_tags)} duplicate tags that should be merged or renamed",
-            "action": "Review duplicate tags and either merge taxonomies or improve label generation",
-            "examples": list(duplicate_tags.keys())[:5]
-        })
-
-    # Low quality tag recommendations
-    if low_quality_tags:
-        recommendations.append({
-            "type": "quality",
-            "priority": "medium",
-            "message": f"Found {len(low_quality_tags)} low-quality generic tags",
-            "action": "Improve label generation to create more specific, distinctive labels",
-            "examples": [tag["tag"] for tag in low_quality_tags[:5]]
-        })
-
-    # Similarity-based merge recommendations
-    high_similarity_pairs = [p for p in similar_pairs if p["similarity"] >= 0.9]
-    if high_similarity_pairs:
-        recommendations.append({
-            "type": "merging",
-            "priority": "medium",
-            "message": f"Found {len(high_similarity_pairs)} pairs with >90% similarity that could be merged",
-            "action": "Consider merging highly similar taxonomies",
-            "examples": [f"'{p['tag_a']}' ↔ '{p['tag_b']}' ({p['similarity']})"
-                         for p in high_similarity_pairs[:3]]
-        })
-
-    # Structure recommendations
-    singleton_count = len(structure_metrics.get("singleton_taxonomies", []))
-    if singleton_count > len(structure_metrics.get("large_taxonomies", [])) * 3:
-        recommendations.append({
-            "type": "structure",
-            "priority": "low",
-            "message": f"High ratio of singleton taxonomies ({singleton_count}) suggests over-segmentation",
-            "action": "Consider adjusting clustering parameters to create larger, more meaningful groups"
-        })
-
-    # Content overlap recommendations
-    overlap_features = content_analysis.get("feature_overlap", [])
-    if len(overlap_features) > 10:
-        recommendations.append({
-            "type": "content",
-            "priority": "medium",
-            "message": f"High feature overlap ({len(overlap_features)} features) between taxonomies",
-            "action": "Review clustering logic - features appearing in multiple taxonomies may indicate poor separation"
-        })
-
-    return recommendations
-
-
 @app.route('/process_reviews/upload', methods=['POST'])
 def process_reviews_upload():
     try:

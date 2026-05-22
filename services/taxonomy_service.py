@@ -1,20 +1,17 @@
-import uuid
-from datetime import datetime
-import numpy as np
-from scipy.cluster.hierarchy import linkage, to_tree, fcluster
-from sklearn.metrics.pairwise import cosine_distances, cosine_similarity
+import json
 import logging
-from datetime import datetime
-from scipy.cluster.hierarchy import linkage, to_tree
-from scipy.spatial.distance import pdist
+import re
 import uuid
-from config import config
-from sentence_transformers import SentenceTransformer
-from sklearn.metrics.pairwise import cosine_similarity
+from datetime import datetime
+
 import numpy as np
 import requests
-import json
-import re
+from scipy.cluster.hierarchy import fcluster, linkage, to_tree
+from scipy.spatial.distance import pdist
+from sentence_transformers import SentenceTransformer
+from sklearn.metrics.pairwise import cosine_distances, cosine_similarity
+
+from config import config
 
 logger = logging.getLogger(__name__)
 
