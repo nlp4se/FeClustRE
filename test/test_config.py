@@ -56,12 +56,12 @@ def mock_test(csv_files, dataset='ai_assistants'):
 
     tester = SystematicTester()
 
-    # mobile_apps is one big CSV with 100 apps.  200 rows → ~2 reviews per app,
-    # just enough for the NER model to find some features.
+    # mobile_apps is one big CSV with 100 apps.  500 rows → ~5 reviews per app,
+    # the minimum needed for the NER model to produce enough features for clustering.
     # ai_assistants are individual per-app files; 50 rows per file is plenty.
     if dataset == 'mobile_apps':
         files = csv_files          # single aggregated file
-        sample_sizes = [200]
+        sample_sizes = [500]
     else:
         files = csv_files[:1]      # one app file is enough to smoke-test
         sample_sizes = [50]
