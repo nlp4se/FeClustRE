@@ -1,4 +1,5 @@
 import json
+import subprocess
 import pandas as pd
 import numpy as np
 import requests
@@ -13,25 +14,39 @@ import seaborn as sns
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Resolve the project root once so all paths are stable regardless of CWD.
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
 
 class SystematicTester:
-    def __init__(self, base_url='http://localhost:3000', cache_dir='test_cache'):
+    def __init__(self, base_url='http://localhost:3000', cache_dir=None):
         self.base_url = base_url
-        self.cache_dir = Path(cache_dir)
+        self.cache_dir = _PROJECT_ROOT / (cache_dir or 'test_cache')
         self.cache_dir.mkdir(exist_ok=True)
 
-        # Results storage
-        self.results_dir = Path('evaluation_results')
+        # Results storage — always relative to project root
+        self.results_dir = _PROJECT_ROOT / 'evaluation_results'
         self.results_dir.mkdir(exist_ok=True)
 
         # Session tracking
         self.session_id = f"test_session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         self.session_file = self.results_dir / f"{self.session_id}.json"
 
+        # Capture git commit for reproducibility tracing
+        try:
+            git_hash = subprocess.check_output(
+                ['git', 'rev-parse', '--short', 'HEAD'],
+                cwd=_PROJECT_ROOT,
+                stderr=subprocess.DEVNULL
+            ).decode().strip()
+        except Exception:
+            git_hash = 'unknown'
+
         # Initialize session data
         self.session_data = {
             'session_id': self.session_id,
             'start_time': datetime.now().isoformat(),
+            'git_commit': git_hash,
             'apps_processed': {},
             'evaluation_metrics': {},
             'configurations': []
