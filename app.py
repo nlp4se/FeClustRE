@@ -520,9 +520,7 @@ def save_selected_clustering(app_name):
         clusters = clustering_result.get("clusters", {})
         logger.info(f"Generating semantic labels for {len(clusters)} clusters in '{app_name}'...")
 
-        labels = get_taxonomy_builder().store_llm_taxonomy(app_name, clusters, method="llm-clustering")
-
-        merge_results = get_taxonomy_builder().merge_mini_taxonomies(app_name)
+        merge_results = get_taxonomy_builder().store_llm_taxonomy(app_name, clusters, method="llm-clustering")
 
         logger.info(f"Clustering result saved for '{app_name}'.")
         return jsonify({
@@ -794,9 +792,16 @@ def convert_numpy_types(obj):
 def get_feature_extractor():
     from services.feature_extraction_service import FeatureExtractor
 
-    model_type = request.args.get("model_type", "t-frex").lower()
+    model_type = FeatureExtractor._normalize_model_type(
+        request.args.get("model_type", "t-frex")
+    )
     enable_postprocessing = request.args.get("enable_postprocessing", "true").lower() == "true"
-    return FeatureExtractor(model_type=model_type, enable_postprocessing=enable_postprocessing)
+    cache_key = f"feature_extractor_{model_type}_{enable_postprocessing}"
+    if cache_key not in _services:
+        _services[cache_key] = FeatureExtractor(
+            model_type=model_type, enable_postprocessing=enable_postprocessing
+        )
+    return _services[cache_key]
 
 @app.route('/mini_taxonomies/<app_name>', methods=['GET'])
 def get_mini_taxonomies(app_name):

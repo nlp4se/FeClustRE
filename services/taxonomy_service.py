@@ -371,6 +371,7 @@ class TaxonomyBuilder:
         logger.info(f"Attempting to merge mini taxonomies for app '{app_name}'...")
         merge_result = self.merge_mini_taxonomies(app_name)
         logger.info(f"Merging complete for app '{app_name}': {merge_result}")
+        return merge_result
 
     def get_mini_taxonomies_for_app(self, app_name):
         try:
