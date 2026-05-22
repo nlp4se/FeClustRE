@@ -101,7 +101,8 @@ class Neo4jConnection:
         RETURN cs, collect(c) as clusters
         """
         result = tx.run(query, session_id=session_id)
-        return result.single().data() if result.single() else None
+        record = result.single()
+        return record.data() if record else None
 
     @staticmethod
     def _create_feature_stats(tx, app_name, word_stats):
