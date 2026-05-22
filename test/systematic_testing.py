@@ -172,16 +172,26 @@ class SystematicTester:
 
         return best_selections
 
-    def save_selected_clusterings(self, best_selections):
+    def save_selected_clusterings(self, best_selections, config=None):
         saved_results = {}
 
         for app_name, selection in best_selections.items():
             try:
                 clustering_data = selection['candidate']['clustering']
 
+                provenance = {}
+                if config:
+                    provenance = {
+                        "model_type": config.get("model_type", "unknown"),
+                        "embedding_type": config.get("embedding_type", "unknown"),
+                        "sample_size": config.get("sample_size"),
+                        "selection_strategy": selection.get("selection_strategy", "unknown"),
+                        "selection_score": round(float(selection.get("score", 0.0)), 4),
+                    }
+
                 response = requests.post(
                     f"{self.base_url}/save_selected_clustering/{app_name}",
-                    json={"clustering": clustering_data},
+                    json={"clustering": clustering_data, "provenance": provenance},
                     timeout=None
                 )
 
@@ -263,7 +273,7 @@ class SystematicTester:
                             )
 
                             # Step 3: Save selected clusterings
-                            saved_results = self.save_selected_clusterings(best_selections)
+                            saved_results = self.save_selected_clusterings(best_selections, config=config)
 
                             # Store configuration results
                             config.update({
