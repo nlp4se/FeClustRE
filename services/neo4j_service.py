@@ -20,10 +20,10 @@ class Neo4jConnection:
         with self.driver.session(database=self.database) as session:
             session.write_transaction(self._create_app, app_name, app_package, category)
 
-    def create_review_with_features(self, app_name, review_id, processed_text, original_text, score, features=None):
+    def create_review_with_features(self, app_name, review_id, processed_text, original_text, score, features=None, model_type='unknown'):
         with self.driver.session(database=self.database) as session:
             session.write_transaction(self._create_review_with_features, app_name, review_id,
-                                      processed_text, original_text, score, features)
+                                      processed_text, original_text, score, features, model_type)
 
     def create_feature_statistics(self, app_name, word_stats):
         with self.driver.session(database=self.database) as session:
@@ -54,7 +54,7 @@ class Neo4jConnection:
         tx.run(query, app_name=app_name, app_package=app_package, category=category)
 
     @staticmethod
-    def _create_review_with_features(tx, app_name, review_id, processed_text, original_text, score, features):
+    def _create_review_with_features(tx, app_name, review_id, processed_text, original_text, score, features, model_type='unknown'):
         query = """
         MATCH (a:App {name: $app_name})
         MERGE (r:Review {
@@ -73,11 +73,13 @@ class Neo4jConnection:
             for feature in features:
                 feature_query = """
                 MATCH (r:Review {id: $review_id})
-                MERGE (f:Feature {name: $feature})
-                MERGE (r)-[:HAS_FEATURE]->(f)
-                RETURN f
+                MERGE (f:Feature {name: $feature, app_name: $app_name})
+                SET f.model_type = $model_type
+                MERGE (r)-[rel:HAS_FEATURE]->(f)
+                SET rel.model_type = $model_type
                 """
-                tx.run(feature_query, review_id=review_id, feature=feature)
+                tx.run(feature_query, review_id=review_id, feature=feature,
+                       app_name=app_name, model_type=model_type)
 
 
     def get_clustering_by_session(self, session_id):

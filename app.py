@@ -540,7 +540,7 @@ def _process_app_reviews(app_name, reviews, extractor):
     return processed_reviews, features_per_review
 
 
-def _store_app_data(app_name, app_data, processed_reviews, features_per_review):
+def _store_app_data(app_name, app_data, processed_reviews, features_per_review, model_type='unknown'):
     # Create app node
     get_neo4j_connection().create_app_node(app_name, app_data['package'], app_data['category'])
 
@@ -553,7 +553,8 @@ def _store_app_data(app_name, app_data, processed_reviews, features_per_review):
             review_data['processed_text'],
             review_data['original_text'],
             review_data['score'],
-            review_features
+            review_features,
+            model_type=model_type
         )
 
 
@@ -682,7 +683,7 @@ def _process_csv_data(csv_data, extractor=None):
 
         for app_name, app_data in apps.items():
             processed_reviews, features_per_review = _process_app_reviews(app_name, app_data['reviews'], extractor)
-            _store_app_data(app_name, app_data, processed_reviews, features_per_review)
+            _store_app_data(app_name, app_data, processed_reviews, features_per_review, model_type=extractor.model_type)
 
             all_features, unique_features = _extract_and_aggregate_features(features_per_review)
             logger.info(f"Found {len(unique_features)} unique features")
