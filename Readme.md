@@ -1,7 +1,7 @@
 # FeClustRE: Feature Clustering and Semantic Tagging of Mobile App Review Feature Taxonomies
 
 [![CI](https://github.com/nlp4se/FeClustRE/actions/workflows/ci.yml/badge.svg)](https://github.com/nlp4se/FeClustRE/actions/workflows/ci.yml)
-[![Coverage](https://raw.githubusercontent.com/nlp4se/FeClustRE/master/badges/coverage.svg)](https://github.com/nlp4se/FeClustRE/actions/workflows/ci.yml)
+[![Coverage](https://raw.githubusercontent.com/nlp4se/FeClustRE/extension-magazine/badges/coverage.svg)](https://github.com/nlp4se/FeClustRE/actions/workflows/ci.yml)
 [![arXiv](https://img.shields.io/badge/arXiv-2510.18799-b31b1b.svg)](https://doi.org/10.48550/arXiv.2510.18799)
 [![Python 3.10](https://img.shields.io/badge/python-3.10-blue.svg)](https://www.python.org/downloads/release/python-3100/)
 
