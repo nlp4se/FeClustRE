@@ -7,6 +7,11 @@ The pipeline stores taxonomies in **Neo4j** and provides utilities to assess the
 
 This repository serves as the full **replication package** for our paper, including code, metrics, and automated evaluation framework.
 
+## Paper
+
+> Max Tiessler, Quim Motger. **FeClustRE: Hierarchical Clustering and Semantic Tagging of App Features from User Reviews.** arXiv:2510.18799 [cs.SE], October 2025.
+> https://doi.org/10.48550/arXiv.2510.18799
+
 ---
 
 ## Quick Start - Replication Package
@@ -14,7 +19,7 @@ This repository serves as the full **replication package** for our paper, includ
 ### 1. Clone
 
 ```bash
-git clone https://github.com/your-org/feclustre.git
+git clone https://github.com/nlp4se/FeClustRE.git
 cd feclustre
 ```
 
@@ -108,10 +113,34 @@ curl http://localhost:3000/health
 
 ### 5. Run Systematic Experiments
 
-All experiments from the paper can be replicated using the systematic testing framework:
+All experiments from the paper can be replicated using the systematic testing framework. The script uploads the CSV files to the running API, iterates over every parameter combination, evaluates clustering quality, and writes results to `evaluation_results/`.
+
+The API must be running (step 2 or step 4) before executing any experiment.
+
+#### Dataset selection
+
+Use `--dataset` to choose which dataset the experiment runs on:
 
 ```bash
-# Mock test (quick validation with 2 apps, small samples)
+# AI assistants dataset (default — used in the paper)
+python3 test/test_config.py <mode> --dataset ai_assistants
+
+# MobileRec dataset (100 apps, 10 categories)
+python3 test/test_config.py <mode> --dataset mobile_apps
+```
+
+The `mobile_apps` option requires `mobilerec_reviews_pipeline.csv` to be present. If it is missing, generate it by running the full `MobileRec.ipynb` notebook first.
+
+You can also point directly at any pipeline-compatible CSV file:
+
+```bash
+python3 test/test_config.py <mode> --csv-files path/to/your.csv
+```
+
+#### Running experiments
+
+```bash
+# Mock test (quick validation, first 2 apps/files, small samples)
 python3 test/test_config.py mock
 
 # Full comprehensive test (all apps, multiple configurations)
@@ -119,30 +148,38 @@ python3 test/test_config.py full
 
 # Semantic experiment (hybrid model, maximum data, balanced strategy)
 python3 test/test_config.py semantic
+
+# Examples with dataset selection
+python3 test/test_config.py mock --dataset mobile_apps
+python3 test/test_config.py full --dataset mobile_apps
+python3 test/test_config.py semantic --dataset mobile_apps
 ```
 
-#### Experiment Configurations
+Results, visualisations, and the summary report are written to `evaluation_results/` in the project root. The session ID printed at the end identifies the output subfolder.
+
+#### Experiment configurations
 
 **Mock Test:**
-- Apps: Claude by Anthropic, Perplexity
+- Apps: first 2 files of the selected dataset
 - Models: transfeatex, t-frex, hybrid
 - Embeddings: allmini, sentence-t5
 - Sample sizes: 10, 20, 50
 - Strategies: balanced, silhouette, conservative
 
 **Full Test:**
-- Apps: All 6 included AI assistants (Claude, DeepSeek, Gemini, Le Chat, Copilot, Perplexity)
+- Apps: all files of the selected dataset (6 AI assistants or 100 mobile apps)
 - Models: t-frex, transfeatex, hybrid
 - Embeddings: allmini, sentence-t5
 - Sample sizes: 1000, 2000, 5000, 50000
 - Strategies: balanced, silhouette, conservative
 
 **Semantic Experiment:**
-- Apps: All 6 included AI assistants
+- Apps: all files of the selected dataset
 - Models: hybrid
 - Embeddings: allmini
-- Sample sizes: No limit (all available reviews)
+- Sample sizes: no limit (all available reviews)
 - Strategies: balanced
+
 
 ---
 
@@ -193,16 +230,47 @@ needed once.
 
 ## Dataset
 
-The dataset is available in `/data/input/endpoint_1_process_reviews/` directory with two categories:
+The dataset is available in `/data/input/endpoint_1_process_reviews/` directory.
 
-### AI Assistants (`/data/input/endpoint_1_process_reviews/ai_assistants/`)
-- Claude_by_Anthropic.csv
-- DeepSeek_-_AI_Assistant.csv
-- Google_Gemini.csv
-- Le_Chat_by_Mistral_AI.csv
-- Microsoft_Copilot.csv
-- Perplexity_-_Ask_Anything.csv
+### Input CSV format
 
+All CSV files uploaded to `/process_reviews/upload` must follow this schema:
+
+| Column | Required | Type | Description |
+|---|---|---|---|
+| `app_name` | **yes** | string | Display name of the app. Used to group reviews. Rows without this are silently dropped. |
+| `review` | **yes** | string | Raw review text. Empty or missing rows are silently dropped. |
+| `app_package` | no | string | Package/bundle identifier (e.g. `com.discord`). Stored in Neo4j. Defaults to `unknown`. |
+| `app_categoryId` | no | string | App category label. Stored in Neo4j. Defaults to `unknown`. |
+| `score` | no | int 1–5 | Star rating. Defaults to `0` if missing or unparseable. |
+| `reviewId` | no | string | Optional review identifier. Defaults to empty string. |
+
+Any extra columns in the CSV are ignored.
+
+### Provided datasets
+
+#### AI Assistants (`/data/input/endpoint_1_process_reviews/ai_assistants/`)
+
+Six Google Play review exports, one file per app, already in the required format:
+
+- `Claude_by_Anthropic.csv`
+- `DeepSeek_-_AI_Assistant.csv`
+- `Google_Gemini.csv`
+- `Le_Chat_by_Mistral_AI.csv`
+- `Microsoft_Copilot.csv`
+- `Perplexity_-_Ask_Anything.csv`
+
+#### Mobile Apps (`/data/input/endpoint_1_process_reviews/mobile_apps/`)
+
+A curated subset of the [MobileRec](https://huggingface.co/datasets/recmeapp/mobilerec) dataset: 100 apps across 10 Google Play categories, 117,820 reviews in a 30-day window (2022-03-11 → 2022-04-10).
+
+Run `MobileRec.ipynb` to generate `mobilerec_reviews_pipeline.csv` before running experiments with this dataset. The notebook downloads the source data from Hugging Face (~4 GB) and produces a pipeline-compatible CSV.
+
+---
+
+## Querying Results
+
+After running experiments, taxonomies are stored in Neo4j and can be queried directly.
 
 ### Query All Taxonomies
 
