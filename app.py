@@ -459,9 +459,12 @@ def save_selected_clustering(app_name):
 
         clustering_result = convert_numpy_types(data["clustering"])
         clusters = clustering_result.get("clusters", {})
+        provenance = data.get("provenance", {})
         logger.info(f"Generating semantic labels for {len(clusters)} clusters in '{app_name}'...")
 
-        merge_results = get_taxonomy_builder().store_llm_taxonomy(app_name, clusters, method="llm-clustering")
+        merge_results = get_taxonomy_builder().store_llm_taxonomy(
+            app_name, clusters, method="llm-clustering", provenance=provenance
+        )
 
         logger.info(f"Clustering result saved for '{app_name}'.")
         return jsonify({

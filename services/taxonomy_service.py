@@ -276,7 +276,7 @@ class TaxonomyBuilder:
             "child_features": list(child_features)
         }
 
-    def store_llm_taxonomy(self, app_name, clusters, method="llm-clustering"):
+    def store_llm_taxonomy(self, app_name, clusters, method="llm-clustering", provenance=None):
         # Remove all existing mini taxonomy trees for this app before writing the
         # new ones.  Without this, repeated saves (e.g. across experiment configs)
         # accumulate duplicate nodes in the graph.
@@ -363,15 +363,38 @@ class TaxonomyBuilder:
                 # Create app-specific root ID
                 root_id = f"mini_taxonomy_root_{app_name}_{session_id}_{cluster_id}_{uuid.uuid4().hex[:8]}"
 
+                prov = provenance or {}
+                prov_model = prov.get('model_type', 'unknown')
+                prov_embedding = prov.get('embedding_type', 'unknown')
+                prov_strategy = prov.get('selection_strategy', 'unknown')
+                prov_sample = prov.get('sample_size')
+                prov_score = prov.get('selection_score')
+
                 with self.neo4j_conn.driver.session(database=self.neo4j_conn.database) as session:
                     # Create the root node first
                     session.write_transaction(_create_node, root_id, label, False, session_id, app_name, label)
-                    # Link the root to the app
+                    # Stamp provenance on the root node
+                    session.write_transaction(lambda tx: tx.run("""
+                        MATCH (r:MiniTaxonomyNode {id: $root_id})
+                        SET r.model_type        = $model_type,
+                            r.embedding_type    = $embedding_type,
+                            r.selection_strategy = $selection_strategy,
+                            r.sample_size       = $sample_size,
+                            r.selection_score   = $selection_score
+                    """, root_id=root_id, model_type=prov_model, embedding_type=prov_embedding,
+                         selection_strategy=prov_strategy, sample_size=prov_sample,
+                         selection_score=prov_score))
+                    # Link the root to the app, carrying provenance on the relationship
                     session.write_transaction(
                         lambda tx: tx.run("""
                             MATCH (a:App {name: $app_name}), (r:MiniTaxonomyNode {id: $root_id, app_name: $app_name})
-                            MERGE (a)-[:HAS_MINI_TAXONOMY {method: $method}]->(r)
-                        """, app_name=app_name, root_id=root_id, method=method)
+                            MERGE (a)-[rel:HAS_MINI_TAXONOMY {method: $method}]->(r)
+                            SET rel.model_type         = $model_type,
+                                rel.embedding_type     = $embedding_type,
+                                rel.selection_strategy = $selection_strategy
+                        """, app_name=app_name, root_id=root_id, method=method,
+                             model_type=prov_model, embedding_type=prov_embedding,
+                             selection_strategy=prov_strategy)
                     )
                     # Build the tree structure under the root (don't pass root_id as parent)
                     session.write_transaction(lambda tx: _build_tree(tx, subtree, root_id, app_name, session_id))
