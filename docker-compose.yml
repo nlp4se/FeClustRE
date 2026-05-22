@@ -8,17 +8,18 @@ services:
       TRANSFORMERS_CACHE: /hf-cache
     volumes:
       - hf_cache:/hf-cache
-    command: >
-      python -c "
-      from transformers import AutoTokenizer, AutoModelForTokenClassification;
-      from sentence_transformers import SentenceTransformer;
-      print('Downloading T-FREX model...', flush=True);
-      AutoTokenizer.from_pretrained('quim-motger/t-frex-bert-base-uncased');
-      AutoModelForTokenClassification.from_pretrained('quim-motger/t-frex-bert-base-uncased');
-      print('Downloading embedding model...', flush=True);
-      SentenceTransformer('all-MiniLM-L6-v2');
-      print('All models ready.', flush=True)
-      "
+    command:
+      - python
+      - "-c"
+      - |
+        from transformers import AutoTokenizer, AutoModelForTokenClassification
+        from sentence_transformers import SentenceTransformer
+        print('Downloading T-FREX model...', flush=True)
+        AutoTokenizer.from_pretrained('quim-motger/t-frex-bert-base-uncased')
+        AutoModelForTokenClassification.from_pretrained('quim-motger/t-frex-bert-base-uncased')
+        print('Downloading embedding model...', flush=True)
+        SentenceTransformer('all-MiniLM-L6-v2')
+        print('All models ready.', flush=True)
     restart: "no"
 
   app:
