@@ -192,7 +192,7 @@ class CsvUploadSmokeTests(unittest.TestCase):
         mock_session.run.return_value = MagicMock()
         mock_neo4j.database = "neo4j"
 
-        with patch("app.get_default_feature_extractor", return_value=mock_extractor), \
+        with patch("app.get_feature_extractor", return_value=mock_extractor), \
              patch("app.get_neo4j_connection", return_value=mock_neo4j):
             csv_bytes = self.TINY_CSV.encode("utf-8")
             data = {"file": (csv_bytes, "reviews.csv", "text/csv")}

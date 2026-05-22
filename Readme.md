@@ -1,5 +1,10 @@
 # FeClustRE: Feature Clustering and Semantic Tagging of Mobile App Review Feature Taxonomies
 
+[![CI](https://github.com/nlp4se/FeClustRE/actions/workflows/ci.yml/badge.svg)](https://github.com/nlp4se/FeClustRE/actions/workflows/ci.yml)
+[![Coverage](https://codecov.io/gh/nlp4se/FeClustRE/branch/master/graph/badge.svg)](https://codecov.io/gh/nlp4se/FeClustRE)
+[![arXiv](https://img.shields.io/badge/arXiv-2510.18799-b31b1b.svg)](https://doi.org/10.48550/arXiv.2510.18799)
+[![Python 3.10](https://img.shields.io/badge/python-3.10-blue.svg)](https://www.python.org/downloads/release/python-3100/)
+
 ## Overview
 
 **FeClustRE** is a system for extracting **app features** from reviews, grouping them into **hierarchical taxonomies**, and assigning **semantic labels** to each cluster using **LLMs**. 
@@ -213,9 +218,10 @@ If you changed the password when starting Neo4j, update `NEO4J_PASSWORD` to matc
 
 ### TransfeatEx unavailable
 
-`/health` reports `"status": "unhealthy"` for `transfeatex`. This is expected
-unless you have access to a running TransfeatEx service. Set `TRANSFEATEX_URL`
-in `.env` to the service address, or leave it empty to skip TransfeatEx.
+`/health` reports `"status": "not_configured"` for `transfeatex` when
+`TRANSFEATEX_URL` is not set. This is expected and does not affect T-FREX mode
+— the overall health status remains `healthy`. Set `TRANSFEATEX_URL` in `.env`
+to the service address to enable it.
 Experiments that specify `model: transfeatex` or `model: hybrid` will fail fast
 with a clear error if the URL is not configured.
 

@@ -1,0 +1,27 @@
+# Minimal dependencies for running the fast test suite in CI.
+# Uses CPU-only torch to keep install size ~250 MB instead of ~2 GB.
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+# Core ML (CPU-only torch)
+torch==2.2.2+cpu
+transformers>=4.30,<5
+sentence-transformers>=2.2,<3
+
+# Web framework
+flask>=2.3,<4
+
+# NLP data
+nltk>=3.8,<4
+
+# Numerics / clustering
+numpy>=1.24,<2
+scikit-learn>=1.2,<2
+scipy>=1.10,<2
+
+# HTTP + database drivers (connections are mocked in tests; imports must resolve)
+requests>=2.28,<3
+neo4j>=5.0,<6
+
+# Test runner
+pytest>=7.4
+pytest-cov>=4.1

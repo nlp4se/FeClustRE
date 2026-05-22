@@ -108,7 +108,7 @@ class TestModelAliasContract(unittest.TestCase):
 class TestHealthCheckContract(unittest.TestCase):
     """Health checks must return a dict with a 'status' key and never raise."""
 
-    def test_transfeatex_missing_url_reports_unhealthy(self):
+    def test_transfeatex_missing_url_reports_not_configured(self):
         from utils.health_checks import check_transfeatex
         from unittest.mock import patch
 
@@ -118,7 +118,7 @@ class TestHealthCheckContract(unittest.TestCase):
 
         self.assertIsInstance(result, dict)
         self.assertIn("status", result)
-        self.assertEqual(result["status"], "unhealthy")
+        self.assertEqual(result["status"], "not_configured")
 
     def test_transfeatex_connection_refused_reports_unhealthy(self):
         from utils.health_checks import check_transfeatex
