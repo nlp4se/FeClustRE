@@ -239,6 +239,10 @@ class TaxonomyBuilder:
                 "subclusters": subclusters
             })
 
+        if not results:
+            logger.warning("_tune_subcluster_cut produced no valid results; falling back to default threshold 0.5")
+            return 0.5, []
+
         results.sort(key=lambda x: x["score"], reverse=True)
         return results[0]["height_threshold"], results[:3]
 
