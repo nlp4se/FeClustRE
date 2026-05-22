@@ -1075,6 +1075,7 @@ class SystematicTester:
                 'session_id': self.session_id,
                 'start_time': self.session_data.get('start_time'),
                 'end_time': datetime.now().isoformat(),
+                'git_commit': self.session_data.get('git_commit', 'unknown'),
                 'total_configurations': len(self.session_data.get('apps_processed', {}))
             },
             'summary': {},
