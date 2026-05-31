@@ -206,6 +206,14 @@ def find_reviews(reviews_df: pd.DataFrame, app_name: str, feature: str, n: int =
 # Data loading
 # ---------------------------------------------------------------------------
 
+def load_provenance() -> dict:
+    if CHECKPOINT_FILE.exists():
+        with open(CHECKPOINT_FILE) as f:
+            cp = json.load(f)
+        return cp.get("provenance", {})
+    return {}
+
+
 def load_app_clusters() -> dict[str, list[dict]]:
     """Return {app_name: [{cluster_id, features}]} from checkpoint or session."""
     if CHECKPOINT_FILE.exists():
@@ -302,6 +310,12 @@ def main():
     out_flat = out_path.parent / (out_path.stem + "_flat.csv")
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
+    provenance = load_provenance()
+    if provenance:
+        logger.info(f"Provenance: {provenance}")
+    else:
+        logger.warning("No provenance found in checkpoint — model/embedding/strategy unknown.")
+
     raw_apps = load_app_clusters()
     if not raw_apps:
         logger.error("No data found. Run run_mobile_pipeline.py first.")
@@ -361,18 +375,26 @@ def main():
         n_clusters = len(clusters)
 
         records.append({
-            "app_name": app_name,
-            "n_clusters": n_clusters,
-            "n_features": n_features,
-            "tree_json": tree,
-            "list_json": flat,
+            "app_name":       app_name,
+            "n_clusters":     n_clusters,
+            "n_features":     n_features,
+            "model_type":     provenance.get("model_type", "unknown"),
+            "embedding_type": provenance.get("embedding_type", "unknown"),
+            "strategy":       provenance.get("selection_strategy", "unknown"),
+            "sample_size":    provenance.get("sample_size", "unknown"),
+            "tree_json":      tree,
+            "list_json":      flat,
         })
         flat_rows.append({
-            "app_name": app_name,
-            "n_clusters": n_clusters,
-            "n_features": n_features,
-            "tree_json": json.dumps(tree, ensure_ascii=False),
-            "list_json": json.dumps(flat, ensure_ascii=False),
+            "app_name":       app_name,
+            "n_clusters":     n_clusters,
+            "n_features":     n_features,
+            "model_type":     provenance.get("model_type", "unknown"),
+            "embedding_type": provenance.get("embedding_type", "unknown"),
+            "strategy":       provenance.get("selection_strategy", "unknown"),
+            "sample_size":    provenance.get("sample_size", "unknown"),
+            "tree_json":      json.dumps(tree, ensure_ascii=False),
+            "list_json":      json.dumps(flat, ensure_ascii=False),
         })
 
     with open(out_path, "w", encoding="utf-8") as f:

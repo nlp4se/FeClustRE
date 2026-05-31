@@ -223,6 +223,14 @@ def best_child(features: list[str], reviews_df: pd.DataFrame, app_name: str) -> 
 # Data loading
 # ---------------------------------------------------------------------------
 
+def load_provenance() -> dict:
+    if CHECKPOINT_FILE.exists():
+        with open(CHECKPOINT_FILE) as f:
+            cp = json.load(f)
+        return cp.get("provenance", {})
+    return {}
+
+
 def load_clusters() -> list[dict]:
     if CHECKPOINT_FILE.exists():
         with open(CHECKPOINT_FILE) as f:
@@ -296,6 +304,12 @@ def main():
     out_path = PROJECT_ROOT / args.out
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
+    provenance = load_provenance()
+    if provenance:
+        logger.info(f"Provenance: {provenance}")
+    else:
+        logger.warning("No provenance found in checkpoint — model/embedding/strategy unknown.")
+
     raw = load_clusters()
     if not raw:
         logger.error("No clusters found. Run run_mobile_pipeline.py first.")
@@ -338,14 +352,18 @@ def main():
         label = generate_label_ollama(c["features"]) if use_ollama else fallback_label(c["features"])
         logger.info(f"[{idx}/{len(kept)}] {c['app_name']} → '{label}'")
         rows.append({
-            "parent_feature":  label,
-            "child_feature":   child,
+            "parent_feature":   label,
+            "child_feature":    child,
             "sibling_features": json.dumps(siblings),
-            "example_reviews": json.dumps(reviews),
-            "app_name":        c["app_name"],
-            "n_siblings":      len(siblings),
-            "cluster_size":    len(c["features"]),
-            "tree_id":         c["tree_id"],
+            "example_reviews":  json.dumps(reviews),
+            "app_name":         c["app_name"],
+            "n_siblings":       len(siblings),
+            "cluster_size":     len(c["features"]),
+            "tree_id":          c["tree_id"],
+            "model_type":       provenance.get("model_type", "unknown"),
+            "embedding_type":   provenance.get("embedding_type", "unknown"),
+            "strategy":         provenance.get("selection_strategy", "unknown"),
+            "sample_size":      provenance.get("sample_size", "unknown"),
         })
 
     logger.info(f"Rows after review filter: {len(rows)}  ({no_review_skipped} dropped — no review hits)")
@@ -363,6 +381,7 @@ def main():
     df = pd.DataFrame(selected, columns=[
         "parent_feature", "child_feature", "sibling_features",
         "example_reviews", "app_name", "n_siblings", "cluster_size", "tree_id",
+        "model_type", "embedding_type", "strategy", "sample_size",
     ])
     df.to_csv(out_path, index=False)
     logger.info(f"Saved: {out_path}  ({len(df)} rows)")

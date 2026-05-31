@@ -144,7 +144,16 @@ def main():
     ).reset_index(drop=True)
     logger.info(f"Sampled {len(df)} rows across {df['app_name'].nunique()} apps ({args.sample}/app max)")
 
-    checkpoint = load_checkpoint() if args.resume else {"completed_apps": {}, "started_at": datetime.now().isoformat()}
+    checkpoint = load_checkpoint() if args.resume else {
+        "completed_apps": {},
+        "started_at": datetime.now().isoformat(),
+        "provenance": {
+            "model_type": MODEL_TYPE,
+            "embedding_type": EMBEDDING_TYPE,
+            "selection_strategy": SELECTION_STRATEGY,
+            "sample_size": args.sample,
+        },
+    }
     completed = checkpoint["completed_apps"]
 
     if completed:
