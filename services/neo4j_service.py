@@ -11,7 +11,12 @@ class Neo4jConnection:
         self.password = password or Config.NEO4J_PASSWORD
         self.database = database or Config.NEO4J_DATABASE
 
-        self.driver = GraphDatabase.driver(self.uri, auth=(self.user, self.password))
+        self.driver = GraphDatabase.driver(
+            self.uri,
+            auth=(self.user, self.password),
+            connection_timeout=3,
+            max_transaction_retry_time=0,
+        )
 
     def close(self):
         self.driver.close()

@@ -65,8 +65,13 @@ class FeatureExtractor:
                 self.model = AutoModelForTokenClassification.from_pretrained(self.model_name)
                 logger.debug("T-FREX model loaded successfully")
 
-                device = 0 if torch.cuda.is_available() else -1
-                logger.info(f"Creating NER pipeline on device: {'GPU' if device == 0 else 'CPU'}")
+                if torch.cuda.is_available():
+                    device = 0
+                elif torch.backends.mps.is_available():
+                    device = torch.device("mps")
+                else:
+                    device = -1
+                logger.info(f"Creating NER pipeline on device: {device}")
 
                 self.ner_pipeline = pipeline(
                     "ner",
@@ -101,7 +106,8 @@ class FeatureExtractor:
                 Config.EMBEDDING_MODELS[Config.DEFAULT_EMBEDDING_MODEL]
             )
             logger.info(f"Loading embedding model: {embedding_name}")
-            self.embedding_model = SentenceTransformer(embedding_name)
+            _emb_device = "mps" if torch.backends.mps.is_available() else ("cuda" if torch.cuda.is_available() else "cpu")
+            self.embedding_model = SentenceTransformer(embedding_name, device=_emb_device)
             logger.info("All models loaded successfully")
 
         except Exception as e:
@@ -390,7 +396,7 @@ class FeatureExtractor:
             'model_type': self.model_type,
             'model_name': self.model_name,
             'embedding_model': self.embedding_model_key,
-            'device': 'cuda' if torch.cuda.is_available() else 'cpu',
+            'device': 'cuda' if torch.cuda.is_available() else ('mps' if torch.backends.mps.is_available() else 'cpu'),
             'model_loaded': (self.model is not None or self.re_extractor is not None),
             'tokenizer_loaded': self.tokenizer is not None,
             'postprocessing_enabled': self.enable_postprocessing,

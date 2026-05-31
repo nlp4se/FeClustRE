@@ -686,13 +686,20 @@ def _process_csv_data(csv_data, extractor=None):
 
         for app_name, app_data in apps.items():
             processed_reviews, features_per_review = _process_app_reviews(app_name, app_data['reviews'], extractor)
-            _store_app_data(app_name, app_data, processed_reviews, features_per_review, model_type=extractor.model_type)
+            try:
+                _store_app_data(app_name, app_data, processed_reviews, features_per_review, model_type=extractor.model_type)
+            except Exception as neo4j_err:
+                logger.warning(f"Neo4j unavailable, skipping storage for '{app_name}': {neo4j_err}")
 
             all_features, unique_features = _extract_and_aggregate_features(features_per_review)
             logger.info(f"Found {len(unique_features)} unique features")
 
-            taxonomy_result = _build_taxonomy(app_name, unique_features, method=extractor.model_type,
-                                              feature_extractor=extractor)
+            try:
+                taxonomy_result = _build_taxonomy(app_name, unique_features, method=extractor.model_type,
+                                                  feature_extractor=extractor)
+            except Exception as neo4j_err:
+                logger.warning(f"Neo4j unavailable, skipping taxonomy storage for '{app_name}': {neo4j_err}")
+                taxonomy_result = None
             taxonomy_tree = taxonomy_result.get("taxonomy_tree", {}) if taxonomy_result else {}
 
             clustering_results = _perform_clustering_analysis(app_name, unique_features, taxonomy_tree, extractor)

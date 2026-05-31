@@ -274,6 +274,140 @@ Run `MobileRec.ipynb` to generate `mobilerec_reviews_pipeline.csv` before runnin
 
 ---
 
+## Human Study — Experiment Data Generation
+
+These steps produce the datasets used in the magazine paper's user study.
+They require the mobile pipeline checkpoint (step 4 below) and Ollama.
+
+### Step 1 — Start infrastructure
+
+```bash
+docker compose up -d neo4j ollama
+
+# Pull the LLM used for cluster labelling (one-time, ~2 GB)
+docker exec $(docker ps -q --filter name=ollama) ollama pull llama3.2:3b
+```
+
+> Neo4j is optional for experiment generation — the pipeline continues without it.
+
+### Step 2 — Start the Flask API
+
+```bash
+.venv/bin/python app.py
+# runs on http://localhost:3000
+```
+
+### Step 3 — Run the mobile-apps pipeline
+
+Processes all 100 apps one at a time with per-app checkpointing.
+Safe to interrupt and resume.
+
+```bash
+# Fresh run (300 reviews per app, ~30–60 min total)
+.venv/bin/python scripts/run_mobile_pipeline.py
+
+# Resume after a crash or interruption
+.venv/bin/python scripts/run_mobile_pipeline.py --resume
+```
+
+Checkpoint: `evaluation_results/mobile_pipeline_checkpoint.json`
+
+Check progress at any time:
+```bash
+python3 -c "
+import json; cp = json.load(open('evaluation_results/mobile_pipeline_checkpoint.json'))
+done = sum(1 for v in cp['completed_apps'].values() if v.get('status') == 'success')
+print(f'{done}/100 apps done')
+"
+```
+
+### Step 4 — Generate experiment datasets
+
+Flask and Neo4j are **not** needed at this step — only the checkpoint and Ollama.
+
+**Experiment 1** — Parent/Child feature validation (n=300 rows):
+
+```bash
+.venv/bin/python scripts/generate_experiment1.py --n 300 --out data/experiment1.csv
+```
+
+Output columns: `parent_feature`, `child_feature`, `sibling_features`, `example_reviews`,
+`app_name`, `n_siblings`, `cluster_size`, `tree_id`
+
+**Experiment 2** — Tree vs flat list (n=60 apps):
+
+```bash
+.venv/bin/python scripts/generate_experiment2.py --n 60 --out data/experiment2.json
+# also writes: data/experiment2_flat.csv
+```
+
+Output: one JSON entry per app with `tree_json` (hierarchical clusters + embedded reviews)
+and `list_json` (flat feature list + embedded reviews).
+
+### Step 5 — Visualise results
+
+```bash
+.venv/bin/streamlit run scripts/visualize_experiments.py
+# opens at http://localhost:8501
+```
+
+- **Experiment 1 tab**: filterable table, per-row SVG tree (parent → child + siblings), example reviews
+- **Experiment 2 tab**: interactive sunburst chart per app, expandable cluster/feature list with reviews
+
+### Resetting experiment data
+
+**Regenerate experiments only** (keep pipeline clusters, just rebuild CSV/JSON):
+
+```bash
+rm -f data/experiment1.csv data/experiment2.json data/experiment2_flat.csv
+.venv/bin/python scripts/generate_experiment1.py --n 300 --out data/experiment1.csv
+.venv/bin/python scripts/generate_experiment2.py --n 60  --out data/experiment2.json
+```
+
+**Full reset** (re-run pipeline from scratch + experiments):
+
+```bash
+rm -f evaluation_results/mobile_pipeline_checkpoint.json
+rm -f evaluation_results/test_session_mobile_*.json
+rm -f data/experiment1.csv data/experiment2.json data/experiment2_flat.csv
+
+# Flask must be running before this step
+.venv/bin/python scripts/run_mobile_pipeline.py
+.venv/bin/python scripts/generate_experiment1.py --n 300 --out data/experiment1.csv
+.venv/bin/python scripts/generate_experiment2.py --n 60  --out data/experiment2.json
+```
+
+**Full reset including Neo4j graph**:
+
+```bash
+rm -f evaluation_results/mobile_pipeline_checkpoint.json
+rm -f evaluation_results/test_session_mobile_*.json
+rm -f data/experiment1.csv data/experiment2.json data/experiment2_flat.csv
+
+docker compose stop neo4j
+docker volume rm feclustre_neo4j_data
+docker compose up -d neo4j
+
+.venv/bin/python scripts/run_mobile_pipeline.py
+.venv/bin/python scripts/generate_experiment1.py --n 300 --out data/experiment1.csv
+.venv/bin/python scripts/generate_experiment2.py --n 60  --out data/experiment2.json
+```
+
+### Quick-reference table
+
+| Task | Command |
+|------|---------|
+| Start services | `docker compose up -d neo4j ollama` |
+| Pull LLM | `docker exec $(docker ps -q --filter name=ollama) ollama pull llama3.2:3b` |
+| Start Flask API | `.venv/bin/python app.py` |
+| Run pipeline (fresh) | `.venv/bin/python scripts/run_mobile_pipeline.py` |
+| Resume pipeline | `.venv/bin/python scripts/run_mobile_pipeline.py --resume` |
+| Generate Experiment 1 | `.venv/bin/python scripts/generate_experiment1.py` |
+| Generate Experiment 2 | `.venv/bin/python scripts/generate_experiment2.py` |
+| Visualise | `.venv/bin/streamlit run scripts/visualize_experiments.py` |
+
+---
+
 ## Querying Results
 
 After running experiments, taxonomies are stored in Neo4j and can be queried directly.
