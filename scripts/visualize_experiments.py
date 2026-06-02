@@ -178,7 +178,9 @@ with tab2:
 
         if view_mode == "Tree":
             # Sunburst chart — use unique IDs to avoid Plotly label collisions
-            ids, labels, parents, values = ["root"], [selected_app], [""], [1]
+            # root value must equal the sum of all leaf values (branchvalues="total")
+            total_features = sum(len(cl["features"]) for cl in tree["clusters"])
+            ids, labels, parents, values = ["root"], [selected_app], [""], [total_features]
             for ci, cl in enumerate(tree["clusters"]):
                 cluster_id = f"cl_{ci}"
                 ids.append(cluster_id)
