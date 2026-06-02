@@ -90,10 +90,8 @@ Use `--dataset` to switch between datasets:
 
 ```bash
 python3 test/test_config.py full --dataset ai_assistants   # default
-python3 test/test_config.py full --dataset mobile_apps     # requires mobilerec_reviews_pipeline.csv
+python3 test/test_config.py full --dataset mobile_apps     # pipeline CSV included in repo
 ```
-
-To generate `mobilerec_reviews_pipeline.csv`, run `MobileRec.ipynb` first (downloads ~4 GB from Hugging Face).
 
 Results are written to `evaluation_results/`.
 
@@ -197,7 +195,8 @@ Six Google Play exports: Claude, DeepSeek, Gemini, Le Chat, Copilot, Perplexity.
 
 **Mobile Apps** (`data/input/endpoint_1_process_reviews/mobile_apps/`)
 100 apps, 10 categories, 117 820 reviews (MobileRec, 2022-03-11 → 2022-04-10).
-Generate `mobilerec_reviews_pipeline.csv` by running `MobileRec.ipynb` first.
+`mobilerec_reviews_pipeline.csv` is included in the repo — no generation needed.
+To regenerate from source, run `MobileRec.ipynb` (downloads ~4 GB from Hugging Face).
 
 ---
 
