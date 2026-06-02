@@ -3,6 +3,7 @@ from sklearn.cluster import AgglomerativeClustering
 from collections import defaultdict
 import numpy as np
 import re
+import threading
 from flask import Flask, request, jsonify
 import csv
 import logging
@@ -460,23 +461,29 @@ def save_selected_clustering(app_name):
         clustering_result = convert_numpy_types(data["clustering"])
         clusters = clustering_result.get("clusters", {})
         provenance = data.get("provenance", {})
-        logger.info(f"Generating semantic labels for {len(clusters)} clusters in '{app_name}'...")
+        n_clusters = len([feats for feats in clusters.values() if len(feats) > 1])
+        logger.info(f"Queuing taxonomy save for '{app_name}' ({n_clusters} clusters)...")
 
-        merge_results = get_taxonomy_builder().store_llm_taxonomy(
-            app_name, clusters, method="llm-clustering", provenance=provenance
-        )
+        def _background_save():
+            try:
+                get_taxonomy_builder().store_llm_taxonomy(
+                    app_name, clusters, method="llm-clustering", provenance=provenance
+                )
+                logger.info(f"Background taxonomy save complete for '{app_name}'.")
+            except Exception as e:
+                logger.error(f"Background taxonomy save failed for '{app_name}': {e}", exc_info=True)
 
-        logger.info(f"Clustering result saved for '{app_name}'.")
+        threading.Thread(target=_background_save, daemon=True).start()
+
         return jsonify({
-            "status": "success",
-            "message": f"Clustering saved for app '{app_name}'",
+            "status": "queued",
+            "message": f"Taxonomy save queued for '{app_name}' ({n_clusters} clusters)",
             "n_clusters": clustering_result.get("n_clusters"),
             "metrics": clustering_result.get("metrics"),
-            "merge_results": merge_results
         })
 
     except Exception as e:
-        logger.error(f"Failed to save clustering for '{app_name}': {e}", exc_info=True)
+        logger.error(f"Failed to queue clustering save for '{app_name}': {e}", exc_info=True)
         return jsonify({"error": "Internal server error"}), 500
 
 

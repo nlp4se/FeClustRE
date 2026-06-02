@@ -5,314 +5,128 @@
 [![arXiv](https://img.shields.io/badge/arXiv-2510.18799-b31b1b.svg)](https://doi.org/10.48550/arXiv.2510.18799)
 [![Python 3.10](https://img.shields.io/badge/python-3.10-blue.svg)](https://www.python.org/downloads/release/python-3100/)
 
-## Overview
-
-**FeClustRE** is a system for extracting **app features** from reviews, grouping them into **hierarchical taxonomies**, and assigning **semantic labels** to each cluster using **LLMs**. 
-The pipeline stores taxonomies in **Neo4j** and provides utilities to assess the quality and coherence of these structures.
-
-This repository serves as the full **replication package** for our paper, including code, metrics, and automated evaluation framework.
-
-## Paper
-
 > Max Tiessler, Quim Motger. **FeClustRE: Hierarchical Clustering and Semantic Tagging of App Features from User Reviews.** arXiv:2510.18799 [cs.SE], October 2025.
 > https://doi.org/10.48550/arXiv.2510.18799
 
+FeClustRE extracts app features from reviews, groups them into hierarchical taxonomies, and assigns semantic labels using an LLM. Taxonomies are stored in Neo4j.
+
 ---
 
-## Quick Start - Replication Package
-
-### 1. Clone
+## Quickstart (Docker)
 
 ```bash
-git clone https://github.com/nlp4se/FeClustRE.git
-cd feclustre
-```
-
-### 2. Start the Reproduction Stack
-
-```bash
+git clone https://github.com/nlp4se/FeClustRE.git && cd FeClustRE
 docker compose up --build
 ```
 
-This starts:
+| Service | URL |
+|---------|-----|
+| FeClustRE API | http://localhost:3000 |
+| Neo4j Browser | http://localhost:7474 |
+| Ollama | http://localhost:11434 |
 
-- FeClustRE API on `http://localhost:3000`
-- Neo4j Browser on `http://localhost:7474`
-- Neo4j Bolt on `bolt://localhost:7687`
-- Ollama on `http://localhost:11434`
-- A one-shot Ollama model pull for `qwen:1.8b`
-
-To use another Ollama model:
+The stack pulls `llama3.2:3b` automatically on first start. To use a different model:
 
 ```bash
 OLLAMA_MODEL=your-model docker compose up --build
 ```
 
-### 3. Local Python Environment
+Verify the API is up:
 
-Requires **Python 3.10**. ML packages (torch, transformers, sentence-transformers) are pinned to
-versions that are tested on Python 3.10. Python 3.11 may work but is not validated.
+```bash
+curl http://localhost:3000/ping
+curl http://localhost:3000/health
+```
+
+---
+
+## Local Setup (no Docker)
+
+Requires **Python 3.10**.
 
 ```bash
 python3.10 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
 .venv/bin/python -m pip install -r requirements.txt
+cp .env.example .env   # edit NEO4J_* and OLLAMA_* if needed
 ```
 
-For notebook and visualisation work install the dev dependencies instead:
+Start dependencies:
 
 ```bash
-.venv/bin/python -m pip install -r requirements-dev.txt
-```
+# Neo4j
+docker run -d --name neo4j -e NEO4J_AUTH=neo4j/12345678 \
+  -p 7474:7474 -p 7687:7687 neo4j:5.15
 
-### 4. Start Services and API (non-Docker)
-
-If you are running without Docker Compose, start services in this order:
-
-**1. Neo4j**
-
-```bash
-# Option A: Docker only Neo4j
-docker run -d --name neo4j \
-  -e NEO4J_AUTH=neo4j/12345678 \
-  -p 7474:7474 -p 7687:7687 \
-  neo4j:5.15
-
-# Option B: existing Neo4j installation — just start it
-```
-
-**2. Ollama**
-
-```bash
+# Ollama
 ollama serve &
-ollama pull qwen:1.8b
+ollama pull llama3.2:3b
 ```
 
-**3. Environment**
-
-Copy `.env.example` to `.env` and adjust values if needed:
+Start the API:
 
 ```bash
-cp .env.example .env
+.venv/bin/python app.py   # http://localhost:3000
 ```
 
-**4. Flask API**
+---
+
+## Run Experiments
+
+The API must be running before executing any experiment.
 
 ```bash
-.venv/bin/python app.py
-```
-
-The API starts on `http://localhost:3000`.
-
-Verify the process is alive:
-
-```bash
-curl http://localhost:3000/ping
-```
-
-Check dependency status:
-
-```bash
-curl http://localhost:3000/health
-```
-
-### 5. Run Systematic Experiments
-
-All experiments from the paper can be replicated using the systematic testing framework. The script uploads the CSV files to the running API, iterates over every parameter combination, evaluates clustering quality, and writes results to `evaluation_results/`.
-
-The API must be running (step 2 or step 4) before executing any experiment.
-
-#### Dataset selection
-
-Use `--dataset` to choose which dataset the experiment runs on:
-
-```bash
-# AI assistants dataset (default — used in the paper)
-python3 test/test_config.py <mode> --dataset ai_assistants
-
-# MobileRec dataset (100 apps, 10 categories)
-python3 test/test_config.py <mode> --dataset mobile_apps
-```
-
-The `mobile_apps` option requires `mobilerec_reviews_pipeline.csv` to be present. If it is missing, generate it by running the full `MobileRec.ipynb` notebook first.
-
-You can also point directly at any pipeline-compatible CSV file:
-
-```bash
-python3 test/test_config.py <mode> --csv-files path/to/your.csv
-```
-
-#### Running experiments
-
-```bash
-# Mock test (quick validation, first 2 apps/files, small samples)
+# Quick validation (2 apps, small samples)
 python3 test/test_config.py mock
 
-# Full comprehensive test (all apps, multiple configurations)
+# Full paper replication (all apps, all configs)
 python3 test/test_config.py full
 
-# Semantic experiment (hybrid model, maximum data, balanced strategy)
+# Semantic experiment (hybrid model, all reviews, balanced strategy)
 python3 test/test_config.py semantic
-
-# Examples with dataset selection
-python3 test/test_config.py mock --dataset mobile_apps
-python3 test/test_config.py full --dataset mobile_apps
-python3 test/test_config.py semantic --dataset mobile_apps
 ```
 
-Results, visualisations, and the summary report are written to `evaluation_results/` in the project root. The session ID printed at the end identifies the output subfolder.
-
-#### Experiment configurations
-
-**Mock Test:**
-- Apps: first 2 files of the selected dataset
-- Models: transfeatex, t-frex, hybrid
-- Embeddings: allmini, sentence-t5
-- Sample sizes: 10, 20, 50
-- Strategies: balanced, silhouette, conservative
-
-**Full Test:**
-- Apps: all files of the selected dataset (6 AI assistants or 100 mobile apps)
-- Models: t-frex, transfeatex, hybrid
-- Embeddings: allmini, sentence-t5
-- Sample sizes: 1000, 2000, 5000, 50000
-- Strategies: balanced, silhouette, conservative
-
-**Semantic Experiment:**
-- Apps: all files of the selected dataset
-- Models: hybrid
-- Embeddings: allmini
-- Sample sizes: no limit (all available reviews)
-- Strategies: balanced
-
-
----
-
-## Troubleshooting
-
-### Ollama model not found
-
-`/health` reports `"error": "Model 'qwen:1.8b' not found in Ollama"`.
+Use `--dataset` to switch between datasets:
 
 ```bash
-ollama pull qwen:1.8b
+python3 test/test_config.py full --dataset ai_assistants   # default
+python3 test/test_config.py full --dataset mobile_apps     # requires mobilerec_reviews_pipeline.csv
 ```
 
-The first pull downloads ~1 GB and takes a few minutes. The app will start fine
-while the pull is in progress — only label generation will fail until the model
-is available.
+To generate `mobilerec_reviews_pipeline.csv`, run `MobileRec.ipynb` first (downloads ~4 GB from Hugging Face).
 
-### Neo4j authentication failure
-
-`/health` reports `"error": "Cannot connect to Neo4j"`.
-
-Check that the values in `.env` match your Neo4j instance:
-
-```
-NEO4J_URI=bolt://localhost:7687
-NEO4J_USER=neo4j
-NEO4J_PASSWORD=12345678
-```
-
-If you changed the password when starting Neo4j, update `NEO4J_PASSWORD` to match.
-
-### TransfeatEx unavailable
-
-`/health` reports `"status": "not_configured"` for `transfeatex` when
-`TRANSFEATEX_URL` is not set. This is expected and does not affect T-FREX mode
-— the overall health status remains `healthy`. Set `TRANSFEATEX_URL` in `.env`
-to the service address to enable it.
-Experiments that specify `model: transfeatex` or `model: hybrid` will fail fast
-with a clear error if the URL is not configured.
-
-### First model download is slow
-
-T-FREX (`quim-motger/t-frex-bert-base-uncased`) and the sentence-transformer
-embedding model are downloaded from Hugging Face on first use. This can take
-several minutes. The download is cached in `~/.cache/huggingface/` and is only
-needed once.
+Results are written to `evaluation_results/`.
 
 ---
 
-## Dataset
+## Human Study — Experiment Data
 
-The dataset is available in `/data/input/endpoint_1_process_reviews/` directory.
+These steps produce the datasets for the magazine paper's user study.
 
-### Input CSV format
-
-All CSV files uploaded to `/process_reviews/upload` must follow this schema:
-
-| Column | Required | Type | Description |
-|---|---|---|---|
-| `app_name` | **yes** | string | Display name of the app. Used to group reviews. Rows without this are silently dropped. |
-| `review` | **yes** | string | Raw review text. Empty or missing rows are silently dropped. |
-| `app_package` | no | string | Package/bundle identifier (e.g. `com.discord`). Stored in Neo4j. Defaults to `unknown`. |
-| `app_categoryId` | no | string | App category label. Stored in Neo4j. Defaults to `unknown`. |
-| `score` | no | int 1–5 | Star rating. Defaults to `0` if missing or unparseable. |
-| `reviewId` | no | string | Optional review identifier. Defaults to empty string. |
-
-Any extra columns in the CSV are ignored.
-
-### Provided datasets
-
-#### AI Assistants (`/data/input/endpoint_1_process_reviews/ai_assistants/`)
-
-Six Google Play review exports, one file per app, already in the required format:
-
-- `Claude_by_Anthropic.csv`
-- `DeepSeek_-_AI_Assistant.csv`
-- `Google_Gemini.csv`
-- `Le_Chat_by_Mistral_AI.csv`
-- `Microsoft_Copilot.csv`
-- `Perplexity_-_Ask_Anything.csv`
-
-#### Mobile Apps (`/data/input/endpoint_1_process_reviews/mobile_apps/`)
-
-A curated subset of the [MobileRec](https://huggingface.co/datasets/recmeapp/mobilerec) dataset: 100 apps across 10 Google Play categories, 117,820 reviews in a 30-day window (2022-03-11 → 2022-04-10).
-
-Run `MobileRec.ipynb` to generate `mobilerec_reviews_pipeline.csv` before running experiments with this dataset. The notebook downloads the source data from Hugging Face (~4 GB) and produces a pipeline-compatible CSV.
-
----
-
-## Human Study — Experiment Data Generation
-
-These steps produce the datasets used in the magazine paper's user study.
-They require the mobile pipeline checkpoint (step 4 below) and Ollama.
-
-### Step 1 — Start infrastructure
+### 1. Start infrastructure
 
 ```bash
 docker compose up -d neo4j ollama
-
-# Pull the LLM used for cluster labelling (one-time, ~2 GB)
 docker exec $(docker ps -q --filter name=ollama) ollama pull llama3.2:3b
 ```
 
-> Neo4j is optional for experiment generation — the pipeline continues without it.
-
-### Step 2 — Start the Flask API
+### 2. Start the API
 
 ```bash
 .venv/bin/python app.py
-# runs on http://localhost:3000
 ```
 
-### Step 3 — Run the mobile-apps pipeline
+### 3. Run the mobile-apps pipeline
 
-Processes all 100 apps one at a time with per-app checkpointing.
 Safe to interrupt and resume.
 
 ```bash
-# Fresh run (300 reviews per app, ~30–60 min total)
-.venv/bin/python scripts/run_mobile_pipeline.py
-
-# Resume after a crash or interruption
-.venv/bin/python scripts/run_mobile_pipeline.py --resume
+.venv/bin/python scripts/run_mobile_pipeline.py          # fresh run (~30–60 min)
+.venv/bin/python scripts/run_mobile_pipeline.py --resume # resume after interruption
 ```
 
-Checkpoint: `evaluation_results/mobile_pipeline_checkpoint.json`
+Check progress:
 
-Check progress at any time:
 ```bash
 python3 -c "
 import json; cp = json.load(open('evaluation_results/mobile_pipeline_checkpoint.json'))
@@ -321,106 +135,101 @@ print(f'{done}/100 apps done')
 "
 ```
 
-### Step 4 — Generate experiment datasets
-
-Flask and Neo4j are **not** needed at this step — only the checkpoint and Ollama.
-
-**Experiment 1** — Parent/Child feature validation (n=300 rows):
+### 4. Generate experiment datasets
 
 ```bash
+# Experiment 1 — parent/child feature validation (n=300)
 .venv/bin/python scripts/generate_experiment1.py --n 300 --out data/experiment1.csv
-```
 
-Output columns: `parent_feature`, `child_feature`, `sibling_features`, `example_reviews`,
-`app_name`, `n_siblings`, `cluster_size`, `tree_id`
-
-**Experiment 2** — Tree vs flat list (n=60 apps):
-
-```bash
+# Experiment 2 — tree vs flat list (n=60 apps)
 .venv/bin/python scripts/generate_experiment2.py --n 60 --out data/experiment2.json
-# also writes: data/experiment2_flat.csv
 ```
 
-Output: one JSON entry per app with `tree_json` (hierarchical clusters + embedded reviews)
-and `list_json` (flat feature list + embedded reviews).
-
-### Step 5 — Visualise results
+### 5. Visualise
 
 ```bash
-.venv/bin/streamlit run scripts/visualize_experiments.py
-# opens at http://localhost:8501
+.venv/bin/streamlit run scripts/visualize_experiments.py  # http://localhost:8501
 ```
 
-- **Experiment 1 tab**: filterable table, per-row SVG tree (parent → child + siblings), example reviews
-- **Experiment 2 tab**: interactive sunburst chart per app, expandable cluster/feature list with reviews
-
-### Resetting experiment data
-
-**Regenerate experiments only** (keep pipeline clusters, just rebuild CSV/JSON):
+### Reset
 
 ```bash
+# Regenerate experiment files only (keep pipeline clusters)
 rm -f data/experiment1.csv data/experiment2.json data/experiment2_flat.csv
 .venv/bin/python scripts/generate_experiment1.py --n 300 --out data/experiment1.csv
 .venv/bin/python scripts/generate_experiment2.py --n 60  --out data/experiment2.json
-```
 
-**Full reset** (re-run pipeline from scratch + experiments):
-
-```bash
-rm -f evaluation_results/mobile_pipeline_checkpoint.json
-rm -f evaluation_results/test_session_mobile_*.json
-rm -f data/experiment1.csv data/experiment2.json data/experiment2_flat.csv
-
-# Flask must be running before this step
+# Full reset (re-run pipeline + experiments)
+rm -f evaluation_results/mobile_pipeline_checkpoint.json \
+      evaluation_results/test_session_mobile_*.json \
+      data/experiment1.csv data/experiment2.json data/experiment2_flat.csv
 .venv/bin/python scripts/run_mobile_pipeline.py
 .venv/bin/python scripts/generate_experiment1.py --n 300 --out data/experiment1.csv
 .venv/bin/python scripts/generate_experiment2.py --n 60  --out data/experiment2.json
-```
 
-**Full reset including Neo4j graph**:
-
-```bash
-rm -f evaluation_results/mobile_pipeline_checkpoint.json
-rm -f evaluation_results/test_session_mobile_*.json
-rm -f data/experiment1.csv data/experiment2.json data/experiment2_flat.csv
-
-docker compose stop neo4j
-docker volume rm feclustre_neo4j_data
+# Full reset including Neo4j graph
+docker compose stop neo4j && docker volume rm feclustre_neo4j_data
 docker compose up -d neo4j
-
-.venv/bin/python scripts/run_mobile_pipeline.py
-.venv/bin/python scripts/generate_experiment1.py --n 300 --out data/experiment1.csv
-.venv/bin/python scripts/generate_experiment2.py --n 60  --out data/experiment2.json
+# then re-run pipeline + generate (commands above)
 ```
 
-### Quick-reference table
+---
 
-| Task | Command |
-|------|---------|
-| Start services | `docker compose up -d neo4j ollama` |
-| Pull LLM | `docker exec $(docker ps -q --filter name=ollama) ollama pull llama3.2:3b` |
-| Start Flask API | `.venv/bin/python app.py` |
-| Run pipeline (fresh) | `.venv/bin/python scripts/run_mobile_pipeline.py` |
-| Resume pipeline | `.venv/bin/python scripts/run_mobile_pipeline.py --resume` |
-| Generate Experiment 1 | `.venv/bin/python scripts/generate_experiment1.py` |
-| Generate Experiment 2 | `.venv/bin/python scripts/generate_experiment2.py` |
-| Visualise | `.venv/bin/streamlit run scripts/visualize_experiments.py` |
+## Dataset
+
+### Input CSV format
+
+| Column | Required | Type | Description |
+|--------|----------|------|-------------|
+| `app_name` | yes | string | App display name — used to group reviews |
+| `review` | yes | string | Raw review text |
+| `app_package` | no | string | Package identifier (e.g. `com.discord`) |
+| `app_categoryId` | no | string | App category label |
+| `score` | no | int 1–5 | Star rating |
+| `reviewId` | no | string | Review identifier |
+
+Extra columns are ignored.
+
+### Provided datasets
+
+**AI Assistants** (`data/input/endpoint_1_process_reviews/ai_assistants/`)
+Six Google Play exports: Claude, DeepSeek, Gemini, Le Chat, Copilot, Perplexity.
+
+**Mobile Apps** (`data/input/endpoint_1_process_reviews/mobile_apps/`)
+100 apps, 10 categories, 117 820 reviews (MobileRec, 2022-03-11 → 2022-04-10).
+Generate `mobilerec_reviews_pipeline.csv` by running `MobileRec.ipynb` first.
 
 ---
 
 ## Querying Results
-
-After running experiments, taxonomies are stored in Neo4j and can be queried directly.
-
-### Query All Taxonomies
 
 ```cypher
 MATCH (app:App)-[:HAS_MINI_TAXONOMY]->(root:MiniTaxonomyNode)
 WHERE NOT ()-[:HAS_CHILD]->(root)
 OPTIONAL MATCH (root)-[:HAS_CHILD*]->(leaf)
 WHERE NOT (leaf)-[:HAS_CHILD]->()
-RETURN app.name as app_name, 
-       root.llm_tag as taxonomy_label,
-       count(DISTINCT leaf) as leaf_count,
-       collect(DISTINCT leaf.feature) as features
+RETURN app.name AS app_name,
+       root.llm_tag AS taxonomy_label,
+       count(DISTINCT leaf) AS leaf_count,
+       collect(DISTINCT leaf.feature) AS features
 ```
+
+---
+
+## Troubleshooting
+
+**Ollama model not found** — `/health` reports `"Model 'llama3.2:3b' not found"`:
+```bash
+ollama pull llama3.2:3b
+```
+
+**Neo4j auth failure** — check `.env` values match your instance:
+```
+NEO4J_URI=bolt://localhost:7687
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=12345678
+```
+
+**TransfeatEx not configured** — `/health` shows `"status": "not_configured"` for `transfeatex`. This is expected when `TRANSFEATEX_URL` is unset; T-FREX mode works without it. Set `TRANSFEATEX_URL` in `.env` to enable hybrid/transfeatex experiments.
+
+**Slow first run** — T-FREX and the sentence-transformer model download from Hugging Face on first use (~1–2 GB, cached in `~/.cache/huggingface/`).

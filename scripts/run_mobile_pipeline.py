@@ -18,7 +18,9 @@ import argparse
 import json
 import logging
 import sys
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 
@@ -111,7 +113,7 @@ def save_to_neo4j(app_name: str, selection: dict) -> dict | None:
                 "selection_strategy": SELECTION_STRATEGY,
                 "selection_score": round(float(selection["score"]), 4),
             }},
-            timeout=60,
+            timeout=30,
         )
         if resp.ok:
             return resp.json()
@@ -125,6 +127,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--sample", type=int, default=300, help="Reviews per app (default: 300)")
     parser.add_argument("--resume", action="store_true", help="Resume from checkpoint")
+    parser.add_argument("--workers", type=int, default=1,
+                        help="Parallel app workers (default: 1). Set >1 only if Flask runs with threaded=True)")
     args = parser.parse_args()
 
     # Check app is running
@@ -163,34 +167,45 @@ def main():
     remaining = [a for a in apps if a not in completed]
     logger.info(f"Apps to process: {len(remaining)} / {len(apps)}")
 
-    for i, app_name in enumerate(remaining, 1):
-        app_df = df[df["app_name"] == app_name].copy()
-        logger.info(f"[{i}/{len(remaining)}] Processing: {app_name} ({len(app_df)} reviews)")
+    checkpoint_lock = threading.Lock()
+    done_count = [0]
 
+    def process_one(app_name: str) -> tuple[str, dict]:
+        app_df = df[df["app_name"] == app_name].copy()
         t0 = time.time()
         result = process_app(app_name, app_df)
         elapsed = time.time() - t0
-
         if result is None:
-            logger.warning(f"  Skipped (no result)")
-            completed[app_name] = {"status": "failed", "elapsed": elapsed}
-        else:
-            selection = auto_select_best(result, SELECTION_STRATEGY)
-            neo4j_result = save_to_neo4j(app_name, selection) if selection else None
+            return app_name, {"status": "failed", "elapsed": elapsed}
+        selection = auto_select_best(result, SELECTION_STRATEGY)
+        neo4j_result = save_to_neo4j(app_name, selection) if selection else None
+        clusters = selection["candidate"]["clustering"].get("clusters", {}) if selection else {}
+        return app_name, {
+            "status": "success",
+            "elapsed": elapsed,
+            "unique_features": result.get("unique_features", 0),
+            "clusters": clusters,
+            "neo4j_saved": neo4j_result is not None,
+        }
 
-            completed[app_name] = {
-                "status": "success",
-                "elapsed": elapsed,
-                "unique_features": result.get("unique_features", 0),
-                "clusters": selection["candidate"]["clustering"].get("clusters", {}) if selection else {},
-                "neo4j_saved": neo4j_result is not None,
-            }
-            clusters = completed[app_name]["clusters"]
-            logger.info(f"  Done in {elapsed:.1f}s — {result.get('unique_features', 0)} features, {len(clusters)} clusters")
-
-        checkpoint["completed_apps"] = completed
-        checkpoint["last_updated"] = datetime.now().isoformat()
-        save_checkpoint(checkpoint)
+    with ThreadPoolExecutor(max_workers=args.workers) as pool:
+        futures = {pool.submit(process_one, app_name): app_name for app_name in remaining}
+        for future in as_completed(futures):
+            app_name, entry = future.result()
+            with checkpoint_lock:
+                done_count[0] += 1
+                completed[app_name] = entry
+                checkpoint["completed_apps"] = completed
+                checkpoint["last_updated"] = datetime.now().isoformat()
+                save_checkpoint(checkpoint)
+            if entry["status"] == "success":
+                logger.info(
+                    f"[{done_count[0]}/{len(remaining)}] {app_name}: "
+                    f"{entry['elapsed']:.1f}s — {entry['unique_features']} features, "
+                    f"{len(entry['clusters'])} clusters"
+                )
+            else:
+                logger.warning(f"[{done_count[0]}/{len(remaining)}] {app_name}: skipped (no result)")
 
     # Summary
     success = [a for a, v in completed.items() if v.get("status") == "success"]

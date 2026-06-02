@@ -4,7 +4,9 @@ from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
 from nltk.tokenize import word_tokenize
 
-# Download required NLTK data
+# Download and eagerly load required NLTK data.
+# LazyCorpusLoader is not thread-safe on first access — force-load everything
+# at import time so concurrent Flask threads never race on initialization.
 try:
     nltk.data.find('tokenizers/punkt')
 except LookupError:
@@ -14,11 +16,13 @@ try:
     nltk.data.find('corpora/stopwords')
 except LookupError:
     nltk.download('stopwords')
+_stopwords_preload = stopwords.words('english')  # force lazy load now
 
 try:
     nltk.data.find('corpora/wordnet')
 except LookupError:
     nltk.download('wordnet')
+from nltk.corpus import wordnet as _wordnet_preload; _wordnet_preload.ensure_loaded()
 
 try:
     nltk.data.find('corpora/omw-1.4')

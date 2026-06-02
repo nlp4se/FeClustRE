@@ -18,7 +18,7 @@ class Config:
         'sentence-t5': 'sentence-transformers/sentence-t5-base'
     }
     DEFAULT_EMBEDDING_MODEL = 'allmini'
-    OLLAMA_MODEL = os.environ.get('OLLAMA_MODEL', 'qwen:1.8b')
+    OLLAMA_MODEL = os.environ.get('OLLAMA_MODEL', 'llama3.2:3b')
     OLLAMA_BASE_URL = os.environ.get('OLLAMA_BASE_URL', 'http://localhost:11434')
     TRANSFEATEX_URL = os.environ.get('TRANSFEATEX_URL')
 

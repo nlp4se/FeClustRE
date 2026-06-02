@@ -1,11 +1,13 @@
 import json
 import logging
 import re
+import threading
 import uuid
 from datetime import datetime
 
 import numpy as np
 import requests
+import torch
 from scipy.cluster.hierarchy import fcluster, linkage, to_tree
 from scipy.spatial.distance import pdist
 from sentence_transformers import SentenceTransformer
@@ -14,6 +16,13 @@ from sklearn.metrics.pairwise import cosine_distances, cosine_similarity
 from config import config
 
 logger = logging.getLogger(__name__)
+
+_embed_device = "mps" if torch.backends.mps.is_available() else ("cuda" if torch.cuda.is_available() else "cpu")
+_embed_model = SentenceTransformer('all-MiniLM-L6-v2', device=_embed_device)
+
+# Ollama runs one inference at a time. This semaphore caps concurrent calls
+# globally so queued requests never exceed the timeout.
+_ollama_semaphore = threading.Semaphore(2)
 
 
 class TaxonomyBuilder:
@@ -349,55 +358,51 @@ class TaxonomyBuilder:
 
             return recurse(root)
 
-        logger.info(f"Creating mini taxonomies for app '{app_name}' with {len(clusters)} clusters.")
-        for cluster_id, features in clusters.items():
-            if len(features) == 1:
-                logger.info(f"Skipping cluster {cluster_id} with only one feature: {features[0]}")
-                continue
+        prov = provenance or {}
+        prov_model = prov.get('model_type', 'unknown')
+        prov_embedding = prov.get('embedding_type', 'unknown')
+        prov_strategy = prov.get('selection_strategy', 'unknown')
+        prov_sample = prov.get('sample_size')
+        prov_score = prov.get('selection_score')
 
-            raw_label = generate_cluster_label(features)
-            label = raw_label.strip().lower()
-            labels[cluster_id] = label
+        valid_clusters = {cid: feats for cid, feats in clusters.items() if len(feats) > 1}
+        for cid, feats in clusters.items():
+            if len(feats) == 1:
+                logger.info(f"Skipping cluster {cid} with only one feature: {feats[0]}")
+
+        logger.info(f"Creating mini taxonomies for app '{app_name}' with {len(valid_clusters)} clusters.")
+
+        for cluster_id, features in valid_clusters.items():
+            labels[cluster_id] = generate_cluster_label(features).strip().lower()
             try:
                 subtree = _extract_tree(features)
-                # Create app-specific root ID
                 root_id = f"mini_taxonomy_root_{app_name}_{session_id}_{cluster_id}_{uuid.uuid4().hex[:8]}"
-
-                prov = provenance or {}
-                prov_model = prov.get('model_type', 'unknown')
-                prov_embedding = prov.get('embedding_type', 'unknown')
-                prov_strategy = prov.get('selection_strategy', 'unknown')
-                prov_sample = prov.get('sample_size')
-                prov_score = prov.get('selection_score')
-
                 with self.neo4j_conn.driver.session(database=self.neo4j_conn.database) as session:
-                    # Create the root node first
-                    session.write_transaction(_create_node, root_id, label, False, session_id, app_name, label)
-                    # Stamp provenance on the root node
-                    session.write_transaction(lambda tx: tx.run("""
-                        MATCH (r:MiniTaxonomyNode {id: $root_id})
-                        SET r.model_type        = $model_type,
-                            r.embedding_type    = $embedding_type,
+                    session.write_transaction(lambda tx, _rid=root_id, _lbl=labels[cluster_id]: tx.run("""
+                        MERGE (r:MiniTaxonomyNode {id: $root_id})
+                        SET r.is_leaf            = false,
+                            r.feature            = $label,
+                            r.session_id         = $session_id,
+                            r.app_name           = $app_name,
+                            r.llm_tag            = $label,
+                            r.model_type         = $model_type,
+                            r.embedding_type     = $embedding_type,
                             r.selection_strategy = $selection_strategy,
-                            r.sample_size       = $sample_size,
-                            r.selection_score   = $selection_score
-                    """, root_id=root_id, model_type=prov_model, embedding_type=prov_embedding,
+                            r.sample_size        = $sample_size,
+                            r.selection_score    = $selection_score
+                        WITH r
+                        MATCH (a:App {name: $app_name})
+                        MERGE (a)-[rel:HAS_MINI_TAXONOMY {method: $method}]->(r)
+                        SET rel.model_type         = $model_type,
+                            rel.embedding_type     = $embedding_type,
+                            rel.selection_strategy = $selection_strategy
+                    """, root_id=_rid, label=_lbl, session_id=session_id, app_name=app_name,
+                         method=method, model_type=prov_model, embedding_type=prov_embedding,
                          selection_strategy=prov_strategy, sample_size=prov_sample,
                          selection_score=prov_score))
-                    # Link the root to the app, carrying provenance on the relationship
                     session.write_transaction(
-                        lambda tx: tx.run("""
-                            MATCH (a:App {name: $app_name}), (r:MiniTaxonomyNode {id: $root_id, app_name: $app_name})
-                            MERGE (a)-[rel:HAS_MINI_TAXONOMY {method: $method}]->(r)
-                            SET rel.model_type         = $model_type,
-                                rel.embedding_type     = $embedding_type,
-                                rel.selection_strategy = $selection_strategy
-                        """, app_name=app_name, root_id=root_id, method=method,
-                             model_type=prov_model, embedding_type=prov_embedding,
-                             selection_strategy=prov_strategy)
+                        lambda tx, _st=subtree, _rid=root_id: _build_tree(tx, _st, _rid, app_name, session_id)
                     )
-                    # Build the tree structure under the root (don't pass root_id as parent)
-                    session.write_transaction(lambda tx: _build_tree(tx, subtree, root_id, app_name, session_id))
             except Exception as e:
                 logger.error(f"Failed to store LLM taxonomy for cluster {cluster_id} in app '{app_name}': {e}",
                              exc_info=True)
@@ -562,7 +567,7 @@ def generate_cluster_label(features, mode="few-shot", base_url=None, model=None,
     base_url = base_url or cfg.OLLAMA_BASE_URL
     model = model or cfg.OLLAMA_MODEL
     used_labels = used_labels or []
-    embed_model = SentenceTransformer('all-MiniLM-L6-v2')
+    embed_model = _embed_model
 
     def is_similar(label, existing_labels, threshold=0.85):
         if not existing_labels:
@@ -575,7 +580,7 @@ def generate_cluster_label(features, mode="few-shot", base_url=None, model=None,
 
     for attempt in range(retries):
         try:
-            logger.info(f"Requesting label from Qwen for cluster with {len(features)} features.")
+            logger.info(f"Requesting label from {model} for cluster with {len(features)} features.")
 
             if mode == "few-shot":
                 prompt = (
@@ -627,30 +632,31 @@ def generate_cluster_label(features, mode="few-shot", base_url=None, model=None,
                 logger.warning(f"Unsupported prompt mode: {mode}")
                 return "Unknown"
 
-            response = requests.post(
-                f"{base_url}/api/chat",
-                json={
-                    "model": model,
-                    "messages": [{"role": "user", "content": prompt}]
-                },
-                stream=True,
-                timeout=30
-            )
+            with _ollama_semaphore:
+                response = requests.post(
+                    f"{base_url}/api/chat",
+                    json={
+                        "model": model,
+                        "messages": [{"role": "user", "content": prompt}]
+                    },
+                    stream=True,
+                    timeout=90
+                )
 
-            if response.status_code != 200:
-                logger.warning(f"Ollama returned status {response.status_code} for model '{model}'")
-                return "Unknown"
+                if response.status_code != 200:
+                    logger.warning(f"Ollama returned status {response.status_code} for model '{model}'")
+                    return "Unknown"
 
-            full_content = ""
-            for line in response.iter_lines(decode_unicode=True):
-                if not line.strip():
-                    continue
-                try:
-                    msg = json.loads(line)
-                    chunk = msg.get("message", {}).get("content", "")
-                    full_content += chunk
-                except Exception:
-                    continue
+                full_content = ""
+                for line in response.iter_lines(decode_unicode=True):
+                    if not line.strip():
+                        continue
+                    try:
+                        msg = json.loads(line)
+                        chunk = msg.get("message", {}).get("content", "")
+                        full_content += chunk
+                    except Exception:
+                        continue
 
             label = full_content.strip().split("\n")[0]
             label = re.sub(r"[^a-zA-Z0-9\s\-]", "", label).strip()

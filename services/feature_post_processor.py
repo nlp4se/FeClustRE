@@ -6,6 +6,13 @@ import nltk
 from nltk.corpus import stopwords
 import logging
 
+# Force-load stopwords at import time — LazyCorpusLoader is not thread-safe.
+try:
+    _stopwords_preload = stopwords.words('english')
+except LookupError:
+    nltk.download('stopwords')
+    _stopwords_preload = stopwords.words('english')
+
 logger = logging.getLogger(__name__)
 
 
