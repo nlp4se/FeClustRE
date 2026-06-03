@@ -244,8 +244,21 @@ class HierarchicalClusterer:
                 "clustering": clustering_result
             })
 
-        # Sort by silhouette score (best first)
-        results.sort(key=lambda x: x['metrics'].get('silhouette_score', -1), reverse=True)
+        # Sort by silhouette score penalised by singleton ratio.
+        # Pure silhouette favours high-granularity results where every feature
+        # is its own cluster (singleton ratio ~1.0) because intra-cluster
+        # distance is 0. Penalising by singleton ratio biases the selection
+        # toward thresholds that produce real multi-feature clusters.
+        def _score(r):
+            sil = r['metrics'].get('silhouette_score', -1)
+            clusters = r['clustering'].get('clusters', {})
+            if not clusters:
+                return -1
+            n_singletons = sum(1 for feats in clusters.values() if len(feats) == 1)
+            singleton_ratio = n_singletons / len(clusters)
+            return sil * (1 - singleton_ratio)
+
+        results.sort(key=_score, reverse=True)
 
         return {
             "best_options": results[:3],
