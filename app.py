@@ -23,6 +23,11 @@ logger = logging.getLogger(__name__)
 
 _services = {}
 
+# Serialise all Neo4j writes. Without this, the background taxonomy-save
+# thread and the per-review write loop inside _store_app_data race for the
+# same App node, causing DeadlockDetected on every review transaction.
+_neo4j_write_lock = threading.Lock()
+
 
 def create_app(config_object=None):
     flask_app = Flask(__name__)
@@ -466,13 +471,14 @@ def save_selected_clustering(app_name):
         logger.info(f"Queuing taxonomy save for '{app_name}' ({n_clusters} clusters)...")
 
         def _background_save():
-            try:
-                get_taxonomy_builder().store_llm_taxonomy(
-                    app_name, clusters, method="llm-clustering", provenance=provenance
-                )
-                logger.info(f"Background taxonomy save complete for '{app_name}'.")
-            except Exception as e:
-                logger.error(f"Background taxonomy save failed for '{app_name}': {e}", exc_info=True)
+            with _neo4j_write_lock:
+                try:
+                    get_taxonomy_builder().store_llm_taxonomy(
+                        app_name, clusters, method="llm-clustering", provenance=provenance
+                    )
+                    logger.info(f"Background taxonomy save complete for '{app_name}'.")
+                except Exception as e:
+                    logger.error(f"Background taxonomy save failed for '{app_name}': {e}", exc_info=True)
 
         threading.Thread(target=_background_save, daemon=True).start()
 
@@ -551,38 +557,20 @@ def _process_app_reviews(app_name, reviews, extractor):
     return processed_reviews, features_per_review
 
 
-def _neo4j_write_with_retry(fn, retries=3, backoff=1.0):
-    """Run fn(), retrying on Neo4j DeadlockDetected up to `retries` times."""
-    for attempt in range(retries):
-        try:
-            return fn()
-        except Exception as e:
-            if "DeadlockDetected" in str(e) and attempt < retries - 1:
-                logger.warning(f"Neo4j deadlock on attempt {attempt + 1}, retrying in {backoff}s...")
-                time.sleep(backoff)
-                backoff *= 2
-            else:
-                raise
-
-
 def _store_app_data(app_name, app_data, processed_reviews, features_per_review, model_type='unknown'):
-    # Create app node
-    _neo4j_write_with_retry(
-        lambda: get_neo4j_connection().create_app_node(app_name, app_data['package'], app_data['category'])
-    )
-
-    # Store reviews with features
-    for i, review_data in enumerate(processed_reviews):
-        review_features = features_per_review[i] if i < len(features_per_review) else []
-        _neo4j_write_with_retry(lambda _rd=review_data, _rf=review_features: get_neo4j_connection().create_review_with_features(
-            app_name,
-            _rd['review_id'],
-            _rd['processed_text'],
-            _rd['original_text'],
-            _rd['score'],
-            _rf,
-            model_type=model_type
-        ))
+    with _neo4j_write_lock:
+        get_neo4j_connection().create_app_node(app_name, app_data['package'], app_data['category'])
+        for i, review_data in enumerate(processed_reviews):
+            review_features = features_per_review[i] if i < len(features_per_review) else []
+            get_neo4j_connection().create_review_with_features(
+                app_name,
+                review_data['review_id'],
+                review_data['processed_text'],
+                review_data['original_text'],
+                review_data['score'],
+                review_features,
+                model_type=model_type
+            )
 
 
 def _extract_and_aggregate_features(features_per_review):
