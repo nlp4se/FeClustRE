@@ -18,7 +18,14 @@ from config import config
 logger = logging.getLogger(__name__)
 
 _embed_device = "mps" if torch.backends.mps.is_available() else ("cuda" if torch.cuda.is_available() else "cpu")
-_embed_model = SentenceTransformer('all-MiniLM-L6-v2', device=_embed_device)
+_embed_model = None
+
+
+def _get_embed_model():
+    global _embed_model
+    if _embed_model is None:
+        _embed_model = SentenceTransformer('all-MiniLM-L6-v2', device=_embed_device)
+    return _embed_model
 
 # Ollama runs one inference at a time. This semaphore caps concurrent calls
 # globally so queued requests never exceed the timeout.
@@ -570,7 +577,7 @@ def generate_cluster_label(features, mode="few-shot", base_url=None, model=None,
     base_url = base_url or cfg.OLLAMA_BASE_URL
     model = model or cfg.OLLAMA_MODEL
     used_labels = used_labels or []
-    embed_model = _embed_model
+    embed_model = _get_embed_model()
 
     def is_similar(label, existing_labels, threshold=0.85):
         if not existing_labels:

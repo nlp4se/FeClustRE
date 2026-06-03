@@ -70,13 +70,13 @@ def get_default_feature_extractor():
     return _services["default_feature_extractor"]
 
 
-def get_taxonomy_builder():
+def get_taxonomy_builder(feature_extractor=None):
     if "taxonomy_builder" not in _services:
         from services.taxonomy_service import TaxonomyBuilder
 
         _services["taxonomy_builder"] = TaxonomyBuilder(
             get_neo4j_connection(),
-            get_default_feature_extractor()
+            feature_extractor or get_default_feature_extractor()
         )
     return _services["taxonomy_builder"]
 
@@ -559,18 +559,11 @@ def _process_app_reviews(app_name, reviews, extractor):
 
 def _store_app_data(app_name, app_data, processed_reviews, features_per_review, model_type='unknown'):
     with _neo4j_write_lock:
-        get_neo4j_connection().create_app_node(app_name, app_data['package'], app_data['category'])
-        for i, review_data in enumerate(processed_reviews):
-            review_features = features_per_review[i] if i < len(features_per_review) else []
-            get_neo4j_connection().create_review_with_features(
-                app_name,
-                review_data['review_id'],
-                review_data['processed_text'],
-                review_data['original_text'],
-                review_data['score'],
-                review_features,
-                model_type=model_type
-            )
+        conn = get_neo4j_connection()
+        conn.create_app_node(app_name, app_data['package'], app_data['category'])
+        conn.create_reviews_with_features_batch(
+            app_name, processed_reviews, features_per_review, model_type=model_type
+        )
 
 
 def _extract_and_aggregate_features(features_per_review):
@@ -671,7 +664,7 @@ def _build_taxonomy(app_name, unique_features, method="bert", feature_extractor=
             feature_extractor = get_default_feature_extractor()
 
         feature_embeddings = feature_extractor.get_embeddings(unique_features)
-        return get_taxonomy_builder().build_and_store_taxonomy(app_name, unique_features, feature_embeddings, method=method)
+        return get_taxonomy_builder(feature_extractor).build_and_store_taxonomy(app_name, unique_features, feature_embeddings, method=method)
     return None
 
 
