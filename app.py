@@ -4,6 +4,7 @@ from collections import defaultdict
 import numpy as np
 import re
 import threading
+import time
 from flask import Flask, request, jsonify
 import csv
 import logging
@@ -550,22 +551,38 @@ def _process_app_reviews(app_name, reviews, extractor):
     return processed_reviews, features_per_review
 
 
+def _neo4j_write_with_retry(fn, retries=3, backoff=1.0):
+    """Run fn(), retrying on Neo4j DeadlockDetected up to `retries` times."""
+    for attempt in range(retries):
+        try:
+            return fn()
+        except Exception as e:
+            if "DeadlockDetected" in str(e) and attempt < retries - 1:
+                logger.warning(f"Neo4j deadlock on attempt {attempt + 1}, retrying in {backoff}s...")
+                time.sleep(backoff)
+                backoff *= 2
+            else:
+                raise
+
+
 def _store_app_data(app_name, app_data, processed_reviews, features_per_review, model_type='unknown'):
     # Create app node
-    get_neo4j_connection().create_app_node(app_name, app_data['package'], app_data['category'])
+    _neo4j_write_with_retry(
+        lambda: get_neo4j_connection().create_app_node(app_name, app_data['package'], app_data['category'])
+    )
 
     # Store reviews with features
     for i, review_data in enumerate(processed_reviews):
         review_features = features_per_review[i] if i < len(features_per_review) else []
-        get_neo4j_connection().create_review_with_features(
+        _neo4j_write_with_retry(lambda _rd=review_data, _rf=review_features: get_neo4j_connection().create_review_with_features(
             app_name,
-            review_data['review_id'],
-            review_data['processed_text'],
-            review_data['original_text'],
-            review_data['score'],
-            review_features,
+            _rd['review_id'],
+            _rd['processed_text'],
+            _rd['original_text'],
+            _rd['score'],
+            _rf,
             model_type=model_type
-        )
+        ))
 
 
 def _extract_and_aggregate_features(features_per_review):

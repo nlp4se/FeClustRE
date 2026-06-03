@@ -115,7 +115,10 @@ class TaxonomyBuilder:
             return {"error": "Not enough features for taxonomy"}
 
         embeddings = np.array(embeddings)
-        distance_matrix = cosine_distances(embeddings)
+        # pdist returns a condensed 1-D array as linkage() expects.
+        # cosine_distances() returns a square matrix which triggers a scipy warning.
+        from scipy.spatial.distance import pdist
+        distance_matrix = pdist(embeddings, metric='cosine')
         linkage_matrix = linkage(distance_matrix, method='average')
 
         tree_root, _ = to_tree(linkage_matrix, rd=True)
