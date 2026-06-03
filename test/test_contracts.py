@@ -17,7 +17,13 @@ def _make_extractor_with_mock_pipeline(mock_ner_output):
          patch("services.feature_extraction_service.SentenceTransformer"):
         extractor = FeatureExtractor(model_type="t-frex", enable_postprocessing=False)
 
-    extractor.ner_pipeline = MagicMock(return_value=mock_ner_output)
+    extractor.ner_pipeline = MagicMock(
+        side_effect=lambda texts, batch_size=16: (
+            mock_ner_output
+            if isinstance(texts, str)
+            else [mock_ner_output for _ in texts]
+        )
+    )
     return extractor
 
 

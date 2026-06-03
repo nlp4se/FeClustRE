@@ -11,6 +11,9 @@ from config import Config
 
 logger = logging.getLogger(__name__)
 
+T_FREX_NER_BATCH_SIZE = 16
+T_FREX_PROGRESS_CHUNK = 200
+
 
 class FeatureExtractor:
     def __init__(self, model_type='t-frex', embedding_model='allmini', enable_postprocessing=True):
@@ -259,49 +262,73 @@ class FeatureExtractor:
         )
         return features_per_text
 
+    def _entities_to_features(self, entities):
+        features = []
+        for entity in entities:
+            if entity['score'] > 0.5:
+                feature_text = entity['word'].strip()
+                if feature_text and len(feature_text) > 2:
+                    features.append(feature_text)
+
+        unique_features = []
+        seen = set()
+        for feature in features:
+            if feature.lower() not in seen:
+                unique_features.append(feature)
+                seen.add(feature.lower())
+        return unique_features
+
     def _extract_features_tfrex(self, texts):
         logger.info(f"Starting T-FREX extraction for {len(texts)} texts")
-        features_per_text = []
-        total_features = 0
-        processed_texts = 0
+        features_per_text = [[] for _ in texts]
+        valid_indices = []
+        valid_texts = []
 
         for i, text in enumerate(texts):
-            if not text or not isinstance(text, str):
-                features_per_text.append([])
+            if text and isinstance(text, str):
+                valid_indices.append(i)
+                valid_texts.append(text)
+            else:
                 logger.debug(f"Text {i}: Skipped (empty or invalid)")
-                continue
 
+        if not valid_texts:
+            logger.info("T-FREX extraction complete: 0 features from 0/0 texts")
+            return features_per_text
+
+        total_features = 0
+        processed_texts = 0
+        for start in range(0, len(valid_texts), T_FREX_PROGRESS_CHUNK):
+            chunk_texts = valid_texts[start:start + T_FREX_PROGRESS_CHUNK]
+            chunk_indices = valid_indices[start:start + T_FREX_PROGRESS_CHUNK]
             try:
-                entities = self.ner_pipeline(text)
-                logger.debug(f"Text {i}: NER pipeline found {len(entities)} entities")
-
-                features = []
-                for entity in entities:
-                    if entity['score'] > 0.5:
-                        feature_text = entity['word'].strip()
-                        if feature_text and len(feature_text) > 2:
-                            features.append(feature_text)
-
-                # Remove duplicates while preserving order
-                unique_features = []
-                seen = set()
-                for feature in features:
-                    if feature.lower() not in seen:
-                        unique_features.append(feature)
-                        seen.add(feature.lower())
-
-                features_per_text.append(unique_features)
-                total_features += len(unique_features)
-                processed_texts += 1
-
-                if len(unique_features) != len(features):
-                    logger.debug(f"Text {i}: Deduplicated {len(features)} -> {len(unique_features)} features")
-
+                chunk_entities = self.ner_pipeline(
+                    chunk_texts, batch_size=T_FREX_NER_BATCH_SIZE
+                )
+                if chunk_texts and not isinstance(chunk_entities[0], list):
+                    chunk_entities = [chunk_entities]
             except Exception as e:
-                logger.error(f"Text {i}: Error extracting features: {str(e)}")
-                features_per_text.append([])
+                logger.error(f"T-FREX batch extraction failed at offset {start}: {e}")
+                chunk_entities = [[] for _ in chunk_texts]
 
-        logger.info(f"T-FREX extraction complete: {total_features} features from {processed_texts}/{len(texts)} texts")
+            for idx, entities in zip(chunk_indices, chunk_entities):
+                try:
+                    unique_features = self._entities_to_features(entities)
+                    features_per_text[idx] = unique_features
+                    total_features += len(unique_features)
+                    processed_texts += 1
+                except Exception as e:
+                    logger.error(f"Text {idx}: Error extracting features: {str(e)}")
+
+            done = min(start + len(chunk_texts), len(valid_texts))
+            logger.info(
+                f"T-FREX progress: {done}/{len(valid_texts)} texts "
+                f"({100 * done // len(valid_texts)}%)"
+            )
+
+        logger.info(
+            f"T-FREX extraction complete: {total_features} features "
+            f"from {processed_texts}/{len(texts)} texts"
+        )
         return features_per_text
 
     def extract_features_with_details(self, text):
