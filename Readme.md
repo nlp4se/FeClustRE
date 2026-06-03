@@ -10,6 +10,54 @@
 
 FeClustRE extracts app features from reviews, groups them into hierarchical taxonomies, and assigns semantic labels using an LLM. Taxonomies are stored in Neo4j.
 
+## Pipeline Overview
+
+```mermaid
+flowchart TD
+    subgraph INPUT["Input"]
+        A1[AI Assistants CSVs\n6 apps]
+        A2[MobileRec CSV\n100 apps · 117k reviews]
+    end
+
+    subgraph API["Flask API · localhost:3000"]
+        B1[Preprocess\nNLTK tokenize · stopwords]
+        B2[Feature Extraction\nT-FREX / TransfeatEx NER]
+        B3[Post-process\ndedup · noise filter]
+        B4[Embed\nall-MiniLM-L6-v2]
+        B5[Agglomerative Clustering\nmultiple thresholds]
+        B6[Candidate Selection\nbalanced · silhouette · conservative]
+        B7[LLM Tagging\nOllama llama3.2:3b]
+        B8[(Neo4j\ntaxonomy graph)]
+    end
+
+    subgraph PIPELINE["Mobile Pipeline Script"]
+        C1[run_mobile_pipeline.py\n--sample 0 · --resume]
+        C2[checkpoint.json\nper-app · resumable]
+    end
+
+    subgraph EXPERIMENTS["Experiment Generation"]
+        D1[generate_experiment1.py\nparent/child validation · n=300]
+        D2[generate_experiment2.py\ntree vs flat list · n=60 apps]
+    end
+
+    subgraph VIZ["Visualisation"]
+        E1[Streamlit · localhost:8501\nExp 1: SVG tree · Exp 2: sunburst]
+    end
+
+    subgraph INFRA["Infrastructure"]
+        F1[Neo4j 5.15]
+        F2[Ollama]
+    end
+
+    A1 & A2 --> C1
+    C1 --> B1 --> B2 --> B3 --> B4 --> B5 --> B6 --> B7 --> B8
+    C1 <--> C2
+    B8 --> D1 & D2
+    C2 --> D1 & D2
+    D1 & D2 --> E1
+    F1 & F2 -.->|services| API
+```
+
 ---
 
 ## Quickstart (Docker)
