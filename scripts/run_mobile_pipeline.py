@@ -125,7 +125,7 @@ def save_to_neo4j(app_name: str, selection: dict) -> dict | None:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--sample", type=int, default=300, help="Reviews per app (default: 300)")
+    parser.add_argument("--sample", type=int, default=300, help="Reviews per app (default: 300). Use 0 for all reviews.")
     parser.add_argument("--resume", action="store_true", help="Resume from checkpoint")
     parser.add_argument("--workers", type=int, default=1,
                         help="Parallel app workers (default: 1). Set >1 only if Flask runs with threaded=True)")
@@ -142,11 +142,12 @@ def main():
     df = pd.read_csv(CSV_FILE).dropna(subset=["review"])
     df["review"] = df["review"].astype(str)
 
-    # Sample per app
-    df = df.groupby("app_name").apply(
-        lambda x: x.sample(min(len(x), args.sample), random_state=42)
-    ).reset_index(drop=True)
-    logger.info(f"Sampled {len(df)} rows across {df['app_name'].nunique()} apps ({args.sample}/app max)")
+    # Sample per app (0 = all reviews)
+    if args.sample > 0:
+        df = df.groupby("app_name").apply(
+            lambda x: x.sample(min(len(x), args.sample), random_state=42)
+        ).reset_index(drop=True)
+    logger.info(f"Sampled {len(df)} rows across {df['app_name'].nunique()} apps ({args.sample or 'all'}/app max)")
 
     checkpoint = load_checkpoint() if args.resume else {
         "completed_apps": {},
