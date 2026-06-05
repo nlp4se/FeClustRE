@@ -157,41 +157,37 @@ with tab2:
         st.warning(f"No data at {EXP2_JSON}. Run generate_experiment2.py first.")
     else:
         data = json.load(open(EXP2_JSON))
-        app_names = [d["app_name"] for d in data]
-        by_app    = {d["app_name"]: d for d in data}
+        options = [
+            f"{d['app_name']} · {d.get('label', d['tree_id'])}  ({d['n_features']} features)"
+            for d in data
+        ]
+        by_key = {opt: d for opt, d in zip(options, data)}
 
         col_l, col_r = st.columns([3, 1])
         with col_l:
-            selected_app = st.selectbox("Select app", app_names, key="e2_app")
+            selected = st.selectbox("Select cluster", options, key="e2_cluster")
         with col_r:
             view_mode = st.radio("View mode", ["Tree", "Flat list"], key="e2_mode", horizontal=True)
 
-        entry = by_app[selected_app]
+        entry = by_key[selected]
         tree  = entry["tree_json"]
         flat  = entry["list_json"]
+        label = entry.get("label") or tree.get("label", "cluster")
 
         c1, c2 = st.columns(2)
-        c1.metric("Clusters", entry["n_clusters"])
-        c2.metric("Clean features", entry["n_features"])
+        c1.metric("Features", entry["n_features"])
+        c2.metric("App", entry["app_name"])
 
         st.divider()
 
         if view_mode == "Tree":
-            # Sunburst chart — use unique IDs to avoid Plotly label collisions
-            # root value must equal the sum of all leaf values (branchvalues="total")
-            total_features = sum(len(cl["features"]) for cl in tree["clusters"])
-            ids, labels, parents, values = ["root"], [selected_app], [""], [total_features]
-            for ci, cl in enumerate(tree["clusters"]):
-                cluster_id = f"cl_{ci}"
-                ids.append(cluster_id)
-                labels.append(cl["label"])
+            n_feats = len(tree["features"])
+            ids, labels, parents, values = ["root"], [label], [""], [n_feats]
+            for fi, feat in enumerate(tree["features"]):
+                ids.append(f"f_{fi}")
+                labels.append(feat["name"])
                 parents.append("root")
-                values.append(len(cl["features"]))
-                for fi, feat in enumerate(cl["features"]):
-                    ids.append(f"cl_{ci}_f_{fi}")
-                    labels.append(feat["name"])
-                    parents.append(cluster_id)
-                    values.append(1)
+                values.append(1)
 
             fig = go.Figure(go.Sunburst(
                 ids=ids,
@@ -204,20 +200,17 @@ with tab2:
             fig.update_layout(margin=dict(t=10, l=0, r=0, b=0), height=550)
             st.plotly_chart(fig, use_container_width=True)
 
-            # Expandable cluster list with reviews
-            st.subheader("Clusters")
-            for cl in tree["clusters"]:
-                with st.expander(f"**{cl['label']}**  ({len(cl['features'])} features)"):
-                    for feat in cl["features"]:
-                        st.markdown(f"**{feat['name']}**")
-                        if feat["reviews"]:
-                            for rv in feat["reviews"]:
-                                st.markdown(f"> {rv[:200]}")
-                        else:
-                            st.caption("no review hits")
+            st.subheader(f"Cluster: {label}")
+            for feat in tree["features"]:
+                with st.expander(f"**{feat['name']}**  ({len(feat['reviews'])} reviews)"):
+                    if feat["reviews"]:
+                        for rv in feat["reviews"]:
+                            st.markdown(f"> {rv[:200]}")
+                    else:
+                        st.caption("no review hits")
 
         else:  # Flat list
-            st.subheader(f"All features ({len(flat['features'])})")
+            st.subheader(f"Features ({len(flat['features'])})")
             for feat in flat["features"]:
                 with st.expander(f"{feat['name']}  ({len(feat['reviews'])} reviews)"):
                     if feat["reviews"]:

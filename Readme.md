@@ -37,7 +37,7 @@ flowchart TD
 
     subgraph EXPERIMENTS["Experiment Generation"]
         D1[generate_experiment1.py\nparent/child validation · n=300]
-        D2[generate_experiment2.py\ntree vs flat list · n=60 apps]
+        D2[generate_experiment2.py\ntree vs flat list · n=60 clusters]
     end
 
     subgraph VIZ["Visualisation"]
@@ -187,7 +187,7 @@ print(f'{done}/100 apps done')
 # Experiment 1 — parent/child feature validation (n=300)
 .venv/bin/python scripts/generate_experiment1.py --n 300 --out data/experiment1.csv
 
-# Experiment 2 — tree vs flat list (n=60 apps)
+# Experiment 2 — tree vs flat list (n=60 clusters, one row per cluster)
 .venv/bin/python scripts/generate_experiment2.py --n 60 --out data/experiment2.json
 ```
 
