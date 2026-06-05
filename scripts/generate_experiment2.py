@@ -6,11 +6,12 @@ Works entirely from the checkpoint or latest session JSON + the reviews CSV.
 Does NOT require Neo4j.
 
 Each row is one cluster (cluster-level entity):
-  tree_json - hierarchical view: label → features, each with embedded reviews
+  tree_json - hierarchical dendrogram: cluster label → internal groups → features (3+ levels)
   list_json - flat view: same cluster features with embedded reviews (no label)
 
 Quality filters applied:
   - Clusters outside [MIN_CLUSTER_SIZE, MAX_CLUSTER_SIZE] are excluded
+  - Tree depth must be in [MIN_TREE_DEPTH, MAX_TREE_DEPTH] (default 3–8)
   - All features from each kept cluster are used for labeling and saved in tree/list JSON
 
 Selection (cluster-level):
@@ -39,6 +40,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import requests
+from scipy.cluster.hierarchy import linkage, to_tree
+from scipy.spatial.distance import pdist
+from sentence_transformers import SentenceTransformer
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -62,9 +66,14 @@ RANDOM_SEED = 42
 # ---------------------------------------------------------------------------
 
 MAX_CLUSTER_SIZE = 30
-MIN_CLUSTER_SIZE = 12
+MIN_CLUSTER_SIZE = 10
+MIN_TREE_DEPTH = 2
+MAX_TREE_DEPTH = 5
 MAX_CLUSTERS_PER_APP = 2
+EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 MIN_FEATURE_LENGTH = 3
+
+_embed_model: SentenceTransformer | None = None
 NOISE_FEATURES = {
     "app", "apps", "use", "used", "user", "users", "get", "got", "make",
     "good", "bad", "best", "new", "old", "free", "pay", "paid",
@@ -140,6 +149,65 @@ def fallback_label(features: list[str]) -> str:
 
 def is_quality_cluster(features: list[str]) -> bool:
     return MIN_CLUSTER_SIZE <= len(features) <= MAX_CLUSTER_SIZE
+
+
+def get_embed_model() -> SentenceTransformer:
+    global _embed_model
+    if _embed_model is None:
+        logger.info(f"Loading embedding model {EMBEDDING_MODEL} for intra-cluster trees...")
+        _embed_model = SentenceTransformer(EMBEDDING_MODEL)
+    return _embed_model
+
+
+def _leaf_features_in_subtree(node, features: list[str]) -> list[str]:
+    if node.is_leaf():
+        return [features[node.id]]
+    return _leaf_features_in_subtree(node.left, features) + _leaf_features_in_subtree(node.right, features)
+
+
+def build_dendrogram(features: list[str]) -> dict:
+    """Binary feature dendrogram (same linkage approach as taxonomy_service)."""
+    if len(features) == 1:
+        return {"label": features[0], "is_leaf": True, "children": []}
+
+    embeddings = get_embed_model().encode(features)
+    linkage_matrix = linkage(pdist(embeddings, metric="cosine"), method="average")
+    root, _ = to_tree(linkage_matrix, rd=True)
+
+    def recurse(node) -> dict:
+        if node.is_leaf():
+            return {"label": features[node.id], "is_leaf": True, "children": []}
+        subtree_feats = _leaf_features_in_subtree(node, features)
+        return {
+            "label": fallback_label(subtree_feats),
+            "is_leaf": False,
+            "children": [recurse(node.left), recurse(node.right)],
+        }
+
+    return recurse(root)
+
+
+def tree_depth(node: dict) -> int:
+    children = node.get("children") or []
+    if not children:
+        return 1
+    return 1 + max(tree_depth(child) for child in children)
+
+
+def cluster_tree_depth(features: list[str]) -> int:
+    """Depth of dendrogram plus one for the LLM cluster label at the root."""
+    if len(features) < 2:
+        return 1
+    return 1 + tree_depth(build_dendrogram(features))
+
+
+def attach_reviews(node: dict, app_name: str, reviews_df: pd.DataFrame) -> None:
+    if node.get("is_leaf"):
+        node["name"] = node["label"]
+        node["reviews"] = find_reviews(reviews_df, app_name, node["label"])
+        return
+    for child in node.get("children", []):
+        attach_reviews(child, app_name, reviews_df)
 
 
 # ---------------------------------------------------------------------------
@@ -322,14 +390,23 @@ def collect_quality_clusters(
     raw_apps: dict[str, list[dict]],
     app_meta: dict[str, dict],
 ) -> list[dict]:
-    """Flatten clusters whose size is within [MIN_CLUSTER_SIZE, MAX_CLUSTER_SIZE]."""
+    """Flatten clusters within size bounds and dendrogram depth in [MIN_TREE_DEPTH, MAX_TREE_DEPTH]."""
     clusters = []
+    rejected_size, rejected_shallow, rejected_deep = 0, 0, 0
     for app_name, app_clusters in raw_apps.items():
         meta = app_meta.get(app_name, {})
         for c in app_clusters:
             features = list(c["features"])
             n_features = len(features)
             if not is_quality_cluster(features):
+                rejected_size += 1
+                continue
+            depth = cluster_tree_depth(features)
+            if depth < MIN_TREE_DEPTH:
+                rejected_shallow += 1
+                continue
+            if depth > MAX_TREE_DEPTH:
+                rejected_deep += 1
                 continue
             clusters.append({
                 "app_name": app_name,
@@ -338,8 +415,15 @@ def collect_quality_clusters(
                 "cluster_id": str(c["cluster_id"]),
                 "features": features,
                 "n_features": n_features,
+                "tree_depth": depth,
                 "tree_id": f"{app_name}__cluster_{c['cluster_id']}",
             })
+    logger.info(
+        f"Rejected {rejected_size} clusters outside size "
+        f"[{MIN_CLUSTER_SIZE}, {MAX_CLUSTER_SIZE}], "
+        f"{rejected_shallow} with depth < {MIN_TREE_DEPTH}, "
+        f"{rejected_deep} with depth > {MAX_TREE_DEPTH}"
+    )
     return clusters
 
 
@@ -465,14 +549,19 @@ def build_cluster_tree_json(
 ) -> tuple[dict, str]:
     features = sorted(features, key=_specificity, reverse=True)
     label = generate_label_ollama(features) if use_ollama else fallback_label(features)
+    subtree = build_dendrogram(features)
+    attach_reviews(subtree, app_name, reviews_df)
+    depth = 1 + tree_depth(subtree)
     return {
         "app": app_name,
         "cluster_id": cluster_id,
         "label": label,
-        "features": [
-            {"name": f, "reviews": find_reviews(reviews_df, app_name, f)}
-            for f in features
-        ],
+        "depth": depth,
+        "tree": {
+            "label": label,
+            "is_leaf": False,
+            "children": subtree["children"] if not subtree.get("is_leaf") else [subtree],
+        },
     }, label
 
 
@@ -523,7 +612,8 @@ def main():
     all_clusters = collect_quality_clusters(raw_apps, app_meta)
     logger.info(
         f"Quality clusters: {len(all_clusters)} from {len(raw_apps)} apps "
-        f"(size [{MIN_CLUSTER_SIZE}, {MAX_CLUSTER_SIZE}])"
+        f"(size [{MIN_CLUSTER_SIZE}, {MAX_CLUSTER_SIZE}], "
+        f"depth [{MIN_TREE_DEPTH}, {MAX_TREE_DEPTH}])"
     )
     if not all_clusters:
         logger.error("No quality clusters found after filtering.")
@@ -579,6 +669,17 @@ def main():
         )
         sys.exit(1)
 
+    bad_depth = [
+        c for c in sampled
+        if not (MIN_TREE_DEPTH <= c["tree_depth"] <= MAX_TREE_DEPTH)
+    ]
+    if bad_depth:
+        logger.error(
+            f"{len(bad_depth)} sampled clusters outside "
+            f"depth [{MIN_TREE_DEPTH}, {MAX_TREE_DEPTH}] — aborting."
+        )
+        sys.exit(1)
+
     sel_by_cat = defaultdict(int)
     sel_by_size = defaultdict(int)
     sel_by_app = defaultdict(int)
@@ -612,6 +713,7 @@ def main():
             "cluster_id":     cluster_id,
             "label":          label,
             "n_features":     c["n_features"],
+            "tree_depth":     tree.get("depth", c.get("tree_depth")),
             "model_type":     provenance.get("model_type", "unknown"),
             "embedding_type": provenance.get("embedding_type", "unknown"),
             "strategy":       provenance.get("selection_strategy", "unknown"),
@@ -635,10 +737,9 @@ def main():
 
     if records:
         sample = records[0]
-        feats = [f["name"] for f in sample["tree_json"]["features"]]
         logger.info(
             f"\n=== Sample: {sample['app_name']} / {sample['label']} "
-            f"({sample['n_features']} features) ===\n  {feats}"
+            f"({sample['n_features']} features, depth {sample.get('tree_depth')}) ==="
         )
 
 
