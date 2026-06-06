@@ -88,16 +88,11 @@ class TaxonomyBuilder:
 
                         with self.neo4j_conn.driver.session(database=self.neo4j_conn.database) as session:
                             session.write_transaction(lambda tx: tx.run("""
-                                MATCH (r:MiniTaxonomyNode {id: $secondary_id, app_name: $app_name})
-                                OPTIONAL MATCH (r)-[:HAS_CHILD]->(c:MiniTaxonomyNode {app_name: $app_name})
-                                OPTIONAL MATCH (a:App {name: $app_name})-[rel:HAS_MINI_TAXONOMY]->(r)
+                                MATCH (a:App {name: $app_name})-[rel:HAS_MINI_TAXONOMY]->(r:MiniTaxonomyNode {id: $secondary_id, app_name: $app_name})
                                 DELETE rel
-                                WITH c, r
+                                WITH r
                                 MATCH (p:MiniTaxonomyNode {id: $primary_id, app_name: $app_name})
-                                FOREACH (_ IN CASE WHEN c IS NOT NULL THEN [1] ELSE [] END |
-                                    MERGE (p)-[:HAS_CHILD]->(c)
-                                )
-                                DETACH DELETE r
+                                MERGE (p)-[:HAS_CHILD]->(r)
                             """, secondary_id=secondary['root_id'], primary_id=primary['root_id'], app_name=app_name))
 
                         merges.append({
@@ -382,8 +377,12 @@ class TaxonomyBuilder:
 
         logger.info(f"Creating mini taxonomies for app '{app_name}' with {len(valid_clusters)} clusters.")
 
+        used_labels = []
         for cluster_id, features in valid_clusters.items():
-            labels[cluster_id] = generate_cluster_label(features).strip().lower()
+            labels[cluster_id] = generate_cluster_label(
+                features, used_labels=used_labels, app_name=app_name
+            ).strip().lower()
+            used_labels.append(labels[cluster_id])
             try:
                 subtree = _extract_tree(features)
                 root_id = f"mini_taxonomy_root_{app_name}_{session_id}_{cluster_id}_{uuid.uuid4().hex[:8]}"
@@ -420,6 +419,7 @@ class TaxonomyBuilder:
         logger.info(f"Attempting to merge mini taxonomies for app '{app_name}'...")
         merge_result = self.merge_mini_taxonomies(app_name)
         logger.info(f"Merging complete for app '{app_name}': {merge_result}")
+        merge_result["labels"] = {str(k): v for k, v in labels.items()}
         return merge_result
 
     def get_mini_taxonomies_for_app(self, app_name):
@@ -572,7 +572,15 @@ class TaxonomyBuilder:
         max_child_depth = max(self._calculate_tree_depth(child) for child in tree_structure['children'])
         return 1 + max_child_depth
 
-def generate_cluster_label(features, mode="few-shot", base_url=None, model=None, used_labels=None, retries=3):
+_FEW_SHOT_LABELS = [
+    "money transfers", "credit building", "live camera view", "motion alerts",
+    "document scanning", "note organization", "food ordering", "loyalty rewards",
+    "health tracking", "team messaging", "purchase flow", "image generation",
+]
+
+
+def generate_cluster_label(features, mode="few-shot", base_url=None, model=None, used_labels=None, retries=3,
+                           app_name=None):
     cfg = config["default"]()
     base_url = base_url or cfg.OLLAMA_BASE_URL
     model = model or cfg.OLLAMA_MODEL
@@ -588,55 +596,45 @@ def generate_cluster_label(features, mode="few-shot", base_url=None, model=None,
         sims = sim_matrix[-1][:-1]  # similarity of new label with existing
         return any(s > threshold for s in sims)
 
+    def is_prompt_leakage(label):
+        label_lower = label.lower().strip()
+        if len(label_lower.split()) > 6:
+            return True
+        return any(label_lower == ex for ex in _FEW_SHOT_LABELS)
+
     for attempt in range(retries):
         try:
             logger.info(f"Requesting label from {model} for cluster with {len(features)} features.")
 
             if mode == "few-shot":
+                app_context = f"App: {app_name}\n" if app_name else ""
                 prompt = (
-                    "You are an assistant that assigns a single, concise category name to a list of app feature keywords.\n"
-                    "Your response must be only the category name. No explanations. No punctuation. No labels like 'Usage' or 'Explanation'.\n"
-                    "Return only the category name — a short phrase (1 to 4 words).\n\n"
+                    "You are an assistant that assigns a single, concise category name to a group of mobile app feature keywords.\n"
+                    "Your response must be ONLY the category name. No explanations. No punctuation.\n"
+                    "The category must describe what the features DO in the context of the app.\n"
+                    "Return only a short phrase (1 to 4 words).\n\n"
                     "Examples:\n"
-                    # ChatGPT
-                    "Features: generate original images, transform existing images\nCategory: Image generation\n\n"
-                    "Features: real-time convo, practice a new language, settle a debate\nCategory: Advanced voice mode\n\n"
-                    "Features: snap a picture, upload a picture, transcribe handwritten recipe, get info about a landmark\nCategory: Photo upload\n\n"
-                    "Features: find custom birthday gift ideas, create personalized greeting card\nCategory: Creative inspiration\n\n"
-                    "Features: talk, ask for a detailed travel itinerary, get help crafting response\nCategory: Tailored advice\n\n"
-                    "Features: brainstorm marketing copy, map out a business plan\nCategory: Professional input\n\n"
-                    "Features: get recipe suggestions\nCategory: Instant answers\n\n"
-                    # Copilot
-                    "Features: summarized answers, translate, proofread across multiple languages, optimizing text, compose and draft emails, compose and draft cover letters, update your resume\nCategory: Smart work\n\n"
-                    "Features: compose stories, compose scripts, image generation, create high quality visuals, render your concepts into stunning visuals, spark inspiration\nCategory: Personal support\n\n"
-                    "Features: search by image, explore and develop new styles and ideas, create illustrations, curate social media content, visualize film and video storyboards, build and update a portfolio\nCategory: Image generation\n\n"
-                    # Mistral
-                    "Features: lightning fast search across the web, real-time news\nCategory: Instant answers\n\n"
-                    "Features: document OCR with multilanguage support, multilanguage reasoning capabilities, voice recognition\nCategory: Multimodal understanding\n\n"
-                    "Features: deep research, advanced reasoning for complex tasks\nCategory: Research and reasoning\n\n"
-                    "Features: organization of data, documents, and notes into personalized Projects\nCategory: Productivity and organization\n\n"
-                    "Features: image generation, contextual iteration\nCategory: Image generation\n\n"
-                    # Perplexity
-                    "Features: guided AI search for deeper exploration\nCategory: Perplexity Pro Search\n\n"
-                    "Features: keep the conversation going for a deeper understanding\nCategory: Thread Follow-Up\n\n"
-                    "Features: instant, up-to-date answers\nCategory: Voice\n\n"
-                    "Features: cited sources for every answer\nCategory: Trust and credibility\n\n"
-                    "Features: learn new things from the community\nCategory: Discover\n\n"
-                    "Features: curation of your discoveries\nCategory: Your Library\n\n"
-                    # Anthropic
-                    "Features: draft a business proposal, translate menus, brainstorm gift ideas, compose a speech\nCategory: On-the-go assistance\n\n"
-                    "Features: start a chat, attach a file, send a photo for real-time image analysis\nCategory: Instant answers\n\n"
-                    "Features: step-by-step thinking, break down complex problems, consider multiple solutions\nCategory: Extended thinking\n\n"
-                    "Features: collaborate on critical tasks, brainstorming, complex problems, continue conversations across devices\nCategory: Faster deep work\n\n"
-                    "Features: draft emails, summarize meetings, assist with small tasks\nCategory: Productivity support\n\n"
-                    "Features: advanced coding, advanced reasoning, AI agents\nCategory: Intelligence\n\n"
-                    # Gemini
-                    "Features: get help with writing, brainstorming, learning\nCategory: Creative and educational support\n\n"
-                    "Features: summarise and find quick info from Gmail or Google Drive\nCategory: Productivity and information retrieval\n\n"
-                    "Features: use text, voice, photos, and your camera to get help\nCategory: Multimodal assistance\n\n"
-                    "Features: ask for help with what's on your phone screen using 'Hey Google'\nCategory: Context-aware interaction\n\n"
-                    "Features: make plans with Google Maps and Google Flights\nCategory: Planning and navigation\n\n"
-                    f"Features: {', '.join(features)}\nCategory:"
+                    # Banking / Finance
+                    "App: Cash App\nFeatures: transfer, send money, direct deposit\nCategory: Money transfers\n\n"
+                    "App: Chime\nFeatures: credit builder, credit bureau, credit building\nCategory: Credit building\n\n"
+                    # Camera / Security
+                    "App: Arlo\nFeatures: camera feed, video cam, live view\nCategory: Live camera view\n\n"
+                    "App: Arlo\nFeatures: motion detection, motion sensing, alert\nCategory: Motion alerts\n\n"
+                    # Productivity
+                    "App: Adobe Scan\nFeatures: scanner, scan, scanning, share scans\nCategory: Document scanning\n\n"
+                    "App: Evernote\nFeatures: notes, notebook, organize, tags\nCategory: Note organization\n\n"
+                    # Food / Delivery
+                    "App: Grubhub\nFeatures: order, delivery, restaurant, menu\nCategory: Food ordering\n\n"
+                    "App: Starbucks\nFeatures: rewards, points, stars, free drink\nCategory: Loyalty rewards\n\n"
+                    # Health / Fitness
+                    "App: Fitbit\nFeatures: steps, heart rate, sleep tracking\nCategory: Health tracking\n\n"
+                    # Communication
+                    "App: Teams\nFeatures: chat, message, group chat, channels\nCategory: Team messaging\n\n"
+                    # Shopping
+                    "App: Amazon\nFeatures: cart, checkout, payment, purchase\nCategory: Purchase flow\n\n"
+                    # AI Assistants
+                    "App: ChatGPT\nFeatures: generate images, transform images, create visuals\nCategory: Image generation\n\n"
+                    f"{app_context}Features: {', '.join(features)}\nCategory:"
                 )
             else:
                 logger.warning(f"Unsupported prompt mode: {mode}")
@@ -675,6 +673,10 @@ def generate_cluster_label(features, mode="few-shot", base_url=None, model=None,
                 logger.warning("LLM label invalid. Retrying...")
                 continue
 
+            if is_prompt_leakage(label):
+                logger.warning(f"Label '{label}' is prompt leakage. Retrying...")
+                continue
+
             if is_similar(label, used_labels):
                 logger.info(f"Label '{label}' too similar to existing labels. Retrying...")
                 continue
@@ -685,6 +687,7 @@ def generate_cluster_label(features, mode="few-shot", base_url=None, model=None,
         except Exception as e:
             logger.error(f"Error generating label: {str(e)}")
 
-    fallback = f"Category {len(used_labels) + 1}"
-    logger.warning(f"LLM failed to generate distinct label. Using fallback: {fallback}")
+    # Fallback: most specific feature from the cluster
+    fallback = sorted(features, key=lambda f: len(f.split()), reverse=True)[0]
+    logger.warning(f"LLM failed to generate distinct label. Using fallback feature: '{fallback}'")
     return fallback

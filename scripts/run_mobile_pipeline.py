@@ -115,7 +115,7 @@ def save_to_neo4j(app_name: str, selection: dict) -> dict | None:
                 "selection_strategy": SELECTION_STRATEGY,
                 "selection_score": round(float(selection["score"]), 4),
             }},
-            timeout=30,
+            timeout=None,
         )
         if resp.ok:
             return resp.json()
@@ -183,11 +183,13 @@ def main():
         selection = auto_select_best(result, SELECTION_STRATEGY)
         neo4j_result = save_to_neo4j(app_name, selection) if selection else None
         clusters = selection["candidate"]["clustering"].get("clusters", {}) if selection else {}
+        labels = neo4j_result.get("labels", {}) if neo4j_result else {}
         return app_name, {
             "status": "success",
             "elapsed": elapsed,
             "unique_features": result.get("unique_features", 0),
             "clusters": clusters,
+            "labels": labels,
             "neo4j_saved": neo4j_result is not None,
         }
 

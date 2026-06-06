@@ -468,25 +468,21 @@ def save_selected_clustering(app_name):
         clusters = clustering_result.get("clusters", {})
         provenance = data.get("provenance", {})
         n_clusters = len([feats for feats in clusters.values() if len(feats) > 1])
-        logger.info(f"Queuing taxonomy save for '{app_name}' ({n_clusters} clusters)...")
+        logger.info(f"Saving taxonomy for '{app_name}' ({n_clusters} clusters)...")
 
-        def _background_save():
-            with _neo4j_write_lock:
-                try:
-                    get_taxonomy_builder().store_llm_taxonomy(
-                        app_name, clusters, method="llm-clustering", provenance=provenance
-                    )
-                    logger.info(f"Background taxonomy save complete for '{app_name}'.")
-                except Exception as e:
-                    logger.error(f"Background taxonomy save failed for '{app_name}': {e}", exc_info=True)
+        with _neo4j_write_lock:
+            result = get_taxonomy_builder().store_llm_taxonomy(
+                app_name, clusters, method="llm-clustering", provenance=provenance
+            )
 
-        threading.Thread(target=_background_save, daemon=True).start()
+        logger.info(f"Taxonomy save complete for '{app_name}'.")
 
         return jsonify({
-            "status": "queued",
-            "message": f"Taxonomy save queued for '{app_name}' ({n_clusters} clusters)",
+            "status": "saved",
+            "message": f"Taxonomy saved for '{app_name}' ({n_clusters} clusters)",
             "n_clusters": clustering_result.get("n_clusters"),
             "metrics": clustering_result.get("metrics"),
+            "labels": result.get("labels", {}),
         })
 
     except Exception as e:

@@ -14,7 +14,7 @@ import streamlit as st
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 EXP1_CSV     = PROJECT_ROOT / "data/experiment1.csv"
-EXP2_JSON    = PROJECT_ROOT / "data/experiment2.json"
+EXP2_CSV     = PROJECT_ROOT / "data/experiment2_flat.csv"
 
 st.set_page_config(page_title="FeClustRE Experiments", layout="wide")
 st.title("FeClustRE — Experiment Data Explorer")
@@ -25,15 +25,7 @@ tab1, tab2 = st.tabs(["Experiment 1 — Parent/Child Validation", "Experiment 2 
 def _exp2_tree_root(tree_json: dict) -> dict:
     if "tree" in tree_json:
         return tree_json["tree"]
-    label = tree_json.get("label", "cluster")
-    return {
-        "label": label,
-        "is_leaf": False,
-        "children": [
-            {"label": f["name"], "is_leaf": True, "name": f["name"], "reviews": f.get("reviews", [])}
-            for f in tree_json.get("features", [])
-        ],
-    }
+    return tree_json
 
 
 def _leaf_count(node: dict) -> int:
@@ -141,7 +133,7 @@ with tab1:
 
             parts = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{svg_w}" height="{svg_h}">']
 
-            # Lines parent → each leaf
+            # Lines parent -> each leaf
             for i in range(n):
                 cx = start_x + i * (BOX_W + H_GAP)
                 parts.append(
@@ -189,7 +181,7 @@ with tab1:
         for _, row in view.iterrows():
             siblings = row["siblings_list"]
             reviews  = row["reviews_list"]
-            header   = f"**{row['parent_feature']}** › {row['child_feature']}  `{row['app_name']}`  (size {row['cluster_size']})"
+            header   = f"**{row['parent_feature']}** > {row['child_feature']}  `{row['app_name']}`  (size {row['cluster_size']})"
             with st.expander(header):
                 svg = tree_svg(row["parent_feature"], row["child_feature"], siblings)
                 st.markdown(f'<div style="overflow-x:auto;padding:8px 0">{svg}</div>',
@@ -203,38 +195,49 @@ with tab1:
 # Experiment 2
 # ---------------------------------------------------------------------------
 with tab2:
-    if not EXP2_JSON.exists():
-        st.warning(f"No data at {EXP2_JSON}. Run generate_experiment2.py first.")
+    if not EXP2_CSV.exists():
+        st.warning(f"No data at {EXP2_CSV}. Run generate_experiment2.py first.")
     else:
-        data = json.load(open(EXP2_JSON))
-        options = [
-            f"{d['app_name']} · {d.get('label', d['tree_id'])}  "
-            f"({d['n_features']} features, depth {d.get('tree_depth', '?')})"
-            for d in data
-        ]
-        by_key = {opt: d for opt, d in zip(options, data)}
+        df2 = pd.read_csv(EXP2_CSV)
+
+        options = []
+        entries = []
+        for _, row in df2.iterrows():
+            label = row.get("label", "?")
+            opt = (
+                f"{row['app_name']} · {label}  "
+                f"({row['n_features']} features, depth {row.get('tree_depth', '?')})"
+            )
+            options.append(opt)
+            entries.append(row)
 
         col_l, col_r = st.columns([3, 1])
         with col_l:
-            selected = st.selectbox("Select cluster", options, key="e2_cluster")
+            selected_idx = st.selectbox(
+                "Select cluster", range(len(options)),
+                format_func=lambda i: options[i], key="e2_cluster"
+            )
         with col_r:
             view_mode = st.radio("View mode", ["Tree", "Flat list"], key="e2_mode", horizontal=True)
 
-        entry = by_key[selected]
-        tree  = entry["tree_json"]
-        flat  = entry["list_json"]
-        label = entry.get("label") or tree.get("label", "cluster")
+        entry = entries[selected_idx]
+        tree_data = json.loads(entry["tree_json"])
+        flat_data = json.loads(entry["list_json"])
+        label = entry.get("label", "cluster")
 
         c1, c2, c3 = st.columns(3)
         c1.metric("Features", entry["n_features"])
-        c2.metric("Tree depth", entry.get("tree_depth", tree.get("depth", "?")))
+        c2.metric("Tree depth", entry.get("tree_depth", "?"))
         c3.metric("App", entry["app_name"])
 
         st.divider()
 
         if view_mode == "Tree":
-            root = _exp2_tree_root(tree)
-            ids, labels, parents, values = ["root"], [root.get("label", label)], [""], [_leaf_count(root)]
+            root = _exp2_tree_root(tree_data)
+            ids = ["root"]
+            labels = [root.get("label", label)]
+            parents = [""]
+            values = [_leaf_count(root)]
             _sunburst_from_node(root, "root", ids, labels, parents, values, [0])
 
             fig = go.Figure(go.Sunburst(
@@ -253,11 +256,23 @@ with tab2:
                 _render_tree_node(child)
 
         else:  # Flat list
-            st.subheader(f"Features ({len(flat['features'])})")
-            for feat in flat["features"]:
-                with st.expander(f"{feat['name']}  ({len(feat['reviews'])} reviews)"):
-                    if feat["reviews"]:
-                        for rv in feat["reviews"]:
-                            st.markdown(f"> {rv[:200]}")
-                    else:
-                        st.caption("no review hits")
+            if isinstance(flat_data, dict) and "features" in flat_data:
+                features = flat_data["features"]
+            elif isinstance(flat_data, list):
+                features = flat_data
+            else:
+                features = []
+
+            st.subheader(f"Features ({len(features)})")
+            for feat in features:
+                if isinstance(feat, dict):
+                    name = feat.get("name", feat.get("label", "?"))
+                    reviews = feat.get("reviews", [])
+                    with st.expander(f"{name}  ({len(reviews)} reviews)"):
+                        if reviews:
+                            for rv in reviews:
+                                st.markdown(f"> {str(rv)[:200]}")
+                        else:
+                            st.caption("no review hits")
+                else:
+                    st.write(f"- {feat}")

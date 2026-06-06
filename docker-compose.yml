@@ -36,7 +36,7 @@ services:
       NEO4J_PASSWORD: "12345678"
       NEO4J_DATABASE: neo4j
       OLLAMA_BASE_URL: http://ollama:11434
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen:1.8b}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:3b}
       TRANSFEATEX_URL: ${TRANSFEATEX_URL:-}
       HF_HOME: /hf-cache
       TRANSFORMERS_CACHE: /hf-cache
@@ -98,7 +98,7 @@ services:
     container_name: ollama-feclust-pull
     environment:
       OLLAMA_HOST: http://ollama:11434
-    command: ["pull", "${OLLAMA_MODEL:-qwen:1.8b}"]
+    command: ["pull", "${OLLAMA_MODEL:-llama3.2:3b}"]
     depends_on:
       ollama:
         condition: service_healthy
