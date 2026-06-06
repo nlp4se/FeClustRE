@@ -6,6 +6,7 @@ import requests
 import time
 import logging
 from pathlib import Path
+from urllib.parse import quote
 from datetime import datetime
 from collections import defaultdict, Counter
 import matplotlib.pyplot as plt
@@ -190,7 +191,7 @@ class SystematicTester:
                     }
 
                 response = requests.post(
-                    f"{self.base_url}/save_selected_clustering/{app_name}",
+                    f"{self.base_url}/save_selected_clustering/{quote(app_name, safe='')}",
                     json={"clustering": clustering_data, "provenance": provenance},
                     timeout=None
                 )

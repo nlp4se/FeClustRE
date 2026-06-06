@@ -34,20 +34,23 @@ import requests
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from config import config
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
+_cfg = config["default"]
 REVIEWS_CSV     = PROJECT_ROOT / "data/input/endpoint_1_process_reviews/mobile_apps/mobilerec_reviews_pipeline.csv"
 CHECKPOINT_FILE = PROJECT_ROOT / "evaluation_results/mobile_pipeline_checkpoint.json"
-OLLAMA_BASE_URL = "http://localhost:11434"
-OLLAMA_MODEL    = "llama3.2:3b"
+OLLAMA_BASE_URL = _cfg.OLLAMA_BASE_URL
+OLLAMA_MODEL    = _cfg.OLLAMA_MODEL
 RANDOM_SEED     = 42
 
 # ---------------------------------------------------------------------------
 # Quality thresholds
 # ---------------------------------------------------------------------------
-MAX_CLUSTER_SIZE  = 12   # garbage-dump guard
-MIN_CLUSTER_SIZE  = 2    # need at least one sibling
+MAX_CLUSTER_SIZE  = 50   # garbage-dump guard
+MIN_CLUSTER_SIZE  = 5    # need at least one sibling
 MIN_FEATURE_LEN   = 3    # chars
 MAX_NOISE_RATIO   = 0.5
 MIN_REVIEW_HITS   = 1    # child must appear in at least 1 review
@@ -132,6 +135,15 @@ def is_quality_cluster(features: list[str]) -> tuple[bool, str]:
     return True, "ok"
 
 
+def _normalize_feature(text: str) -> str:
+    return re.sub(r"\s+", " ", text.lower().strip())
+
+
+def parent_same_as_child(parent: str, child: str) -> bool:
+    """True when parent and child are the same feature string (case/whitespace insensitive)."""
+    return _normalize_feature(parent) == _normalize_feature(child)
+
+
 # ---------------------------------------------------------------------------
 # Parent label generation
 # ---------------------------------------------------------------------------
@@ -149,46 +161,81 @@ def fallback_label(features: list[str]) -> str:
 _PROMPT_LEAK_WORDS = {"product", "analyst", "labeling", "human", "study", "category", "features"}
 
 
+def _label_equals_feature(label: str, features: list[str]) -> bool:
+    norm = _normalize_feature(label)
+    return any(norm == _normalize_feature(f) for f in features)
+
+
+def _parse_label_response(raw: str) -> str:
+    label = raw.strip().strip('"').strip("'").lower()
+    label = label.splitlines()[0].strip()
+    for prefix in ("category name:", "category:", "name:", "label:"):
+        if label.startswith(prefix):
+            label = label[len(prefix):].strip()
+    label = re.sub(r"[^a-zA-Z0-9\s\-]", "", label).strip()
+    return label
+
+
 def _is_valid_label(label: str, features: list[str]) -> bool:
     if not label or len(label) > 50:
         return False
     words = label.split()
-    if len(words) > 6:
-        return False  # prompt leakage — too long
+    if len(words) > 6 or len(words) < 1:
+        return False
     if any(c in label for c in (",", "_", ":", ".")):
         return False
-    if label in [f.lower() for f in features]:
+    if _label_equals_feature(label, features):
         return False
     if sum(1 for w in words if w in _PROMPT_LEAK_WORDS) >= 2:
         return False
     return True
 
 
-def generate_label_ollama(features: list[str]) -> str:
-    # Few-shot completion format — small models complete patterns better than following instructions
-    prompt = (
-        "Features: camera zoom, zoom controls, manual focus\n"
-        "Category: camera controls\n\n"
-        "Features: push notification, alerts, message\n"
-        "Category: notification settings\n\n"
-        "Features: credit card, payment, checkout\n"
-        "Category: payment methods\n\n"
-        f"Features: {', '.join(features[:6])}\n"
-        "Category:"
+def _build_zero_shot_prompt(features: list[str]) -> str:
+    feature_lines = "\n".join(f"- {f}" for f in features)
+    return (
+        "You name feature categories for mobile app review clusters.\n\n"
+        f"Features in this cluster:\n{feature_lines}\n\n"
+        "Write one category name that:\n"
+        "1. Is as close to this domain as possible, but broader than any single feature.\n"
+        "2. Covers all features in the cluster.\n"
+        "3. Is NOT identical to any feature listed above.\n"
+        "4. Is a short phrase (2-4 words).\n\n"
+        "Reply with ONLY the category name. No explanation, punctuation, or other text."
     )
-    try:
-        resp = requests.post(
-            f"{OLLAMA_BASE_URL}/api/generate",
-            json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False},
-            timeout=30,
-        )
-        if resp.ok:
-            label = resp.json().get("response", "").strip().strip('"').lower()
-            label = label.splitlines()[0].strip()  # take only first line
+
+
+def generate_label_ollama(features: list[str], max_attempts: int = 10) -> str:
+    prompt = _build_zero_shot_prompt(features)
+    for attempt in range(1, max_attempts + 1):
+        try:
+            resp = requests.post(
+                f"{OLLAMA_BASE_URL}/api/chat",
+                json={
+                    "model": OLLAMA_MODEL,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "stream": False,
+                },
+                timeout=60,
+            )
+            if not resp.ok:
+                logger.debug(f"Ollama HTTP {resp.status_code} (attempt {attempt}/{max_attempts})")
+                continue
+            raw = resp.json().get("message", {}).get("content", "")
+            label = _parse_label_response(raw)
+            if not label:
+                logger.warning(f"Empty label (attempt {attempt}/{max_attempts})")
+                continue
+            if _label_equals_feature(label, features):
+                logger.warning(
+                    f"Label '{label}' equals a feature — retry {attempt}/{max_attempts}"
+                )
+                continue
             if _is_valid_label(label, features):
                 return label
-    except Exception as e:
-        logger.debug(f"Ollama failed: {e}")
+            logger.warning(f"Label '{label}' rejected by validation (attempt {attempt}/{max_attempts})")
+        except Exception as e:
+            logger.debug(f"Ollama failed (attempt {attempt}/{max_attempts}): {e}")
     return fallback_label(features)
 
 
@@ -342,7 +389,7 @@ def main():
     except Exception:
         logger.warning("Ollama not reachable — using most-specific-feature fallback for labels.")
 
-    rows, no_review_skipped = [], 0
+    rows, no_review_skipped, same_parent_child_skipped = [], 0, 0
     for idx, c in enumerate(kept, 1):
         child, reviews = best_child(c["features"], reviews_df, c["app_name"])
         if child is None:
@@ -350,6 +397,12 @@ def main():
             continue
         siblings = [f for f in c["features"] if f != child]
         label = generate_label_ollama(c["features"]) if use_ollama else fallback_label(c["features"])
+        if parent_same_as_child(label, child):
+            same_parent_child_skipped += 1
+            logger.info(
+                f"[{idx}/{len(kept)}] {c['app_name']} — skipped: parent '{label}' equals child '{child}'"
+            )
+            continue
         logger.info(f"[{idx}/{len(kept)}] {c['app_name']} → '{label}'")
         rows.append({
             "parent_feature":   label,
@@ -366,7 +419,11 @@ def main():
             "sample_size":      provenance.get("sample_size", "unknown"),
         })
 
-    logger.info(f"Rows after review filter: {len(rows)}  ({no_review_skipped} dropped — no review hits)")
+    logger.info(
+        f"Rows after filters: {len(rows)}  "
+        f"({no_review_skipped} dropped — no review hits; "
+        f"{same_parent_child_skipped} dropped — parent equals child)"
+    )
     if len(rows) < args.n:
         logger.warning(f"Only {len(rows)} rows (target {args.n}) — will grow as pipeline completes.")
 

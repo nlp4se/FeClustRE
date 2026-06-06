@@ -21,6 +21,56 @@ st.title("FeClustRE — Experiment Data Explorer")
 
 tab1, tab2 = st.tabs(["Experiment 1 — Parent/Child Validation", "Experiment 2 — Tree vs Flat List"])
 
+
+def _exp2_tree_root(tree_json: dict) -> dict:
+    if "tree" in tree_json:
+        return tree_json["tree"]
+    label = tree_json.get("label", "cluster")
+    return {
+        "label": label,
+        "is_leaf": False,
+        "children": [
+            {"label": f["name"], "is_leaf": True, "name": f["name"], "reviews": f.get("reviews", [])}
+            for f in tree_json.get("features", [])
+        ],
+    }
+
+
+def _leaf_count(node: dict) -> int:
+    children = node.get("children") or []
+    if node.get("is_leaf") or not children:
+        return 1
+    return sum(_leaf_count(child) for child in children)
+
+
+def _sunburst_from_node(node: dict, parent_id: str, ids, labels, parents, values, counter: list):
+    node_id = f"n_{counter[0]}"
+    counter[0] += 1
+    ids.append(node_id)
+    labels.append(node.get("label", node.get("name", "?")))
+    parents.append(parent_id)
+    children = node.get("children") or []
+    values.append(_leaf_count(node))
+    for child in children:
+        _sunburst_from_node(child, node_id, ids, labels, parents, values, counter)
+
+
+def _render_tree_node(node: dict, depth: int = 0):
+    name = node.get("name") or node.get("label", "?")
+    children = node.get("children") or []
+    if node.get("is_leaf") or not children:
+        reviews = node.get("reviews", [])
+        with st.expander(f"{'  ' * depth}**{name}**  ({len(reviews)} reviews)"):
+            if reviews:
+                for rv in reviews:
+                    st.markdown(f"> {rv[:200]}")
+            else:
+                st.caption("no review hits")
+        return
+    with st.expander(f"{'  ' * depth}**{name}**  ({len(children)} branches)", expanded=depth < 1):
+        for child in children:
+            _render_tree_node(child, depth + 1)
+
 # ---------------------------------------------------------------------------
 # Experiment 1
 # ---------------------------------------------------------------------------
@@ -157,41 +207,35 @@ with tab2:
         st.warning(f"No data at {EXP2_JSON}. Run generate_experiment2.py first.")
     else:
         data = json.load(open(EXP2_JSON))
-        app_names = [d["app_name"] for d in data]
-        by_app    = {d["app_name"]: d for d in data}
+        options = [
+            f"{d['app_name']} · {d.get('label', d['tree_id'])}  "
+            f"({d['n_features']} features, depth {d.get('tree_depth', '?')})"
+            for d in data
+        ]
+        by_key = {opt: d for opt, d in zip(options, data)}
 
         col_l, col_r = st.columns([3, 1])
         with col_l:
-            selected_app = st.selectbox("Select app", app_names, key="e2_app")
+            selected = st.selectbox("Select cluster", options, key="e2_cluster")
         with col_r:
             view_mode = st.radio("View mode", ["Tree", "Flat list"], key="e2_mode", horizontal=True)
 
-        entry = by_app[selected_app]
+        entry = by_key[selected]
         tree  = entry["tree_json"]
         flat  = entry["list_json"]
+        label = entry.get("label") or tree.get("label", "cluster")
 
-        c1, c2 = st.columns(2)
-        c1.metric("Clusters", entry["n_clusters"])
-        c2.metric("Clean features", entry["n_features"])
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Features", entry["n_features"])
+        c2.metric("Tree depth", entry.get("tree_depth", tree.get("depth", "?")))
+        c3.metric("App", entry["app_name"])
 
         st.divider()
 
         if view_mode == "Tree":
-            # Sunburst chart — use unique IDs to avoid Plotly label collisions
-            # root value must equal the sum of all leaf values (branchvalues="total")
-            total_features = sum(len(cl["features"]) for cl in tree["clusters"])
-            ids, labels, parents, values = ["root"], [selected_app], [""], [total_features]
-            for ci, cl in enumerate(tree["clusters"]):
-                cluster_id = f"cl_{ci}"
-                ids.append(cluster_id)
-                labels.append(cl["label"])
-                parents.append("root")
-                values.append(len(cl["features"]))
-                for fi, feat in enumerate(cl["features"]):
-                    ids.append(f"cl_{ci}_f_{fi}")
-                    labels.append(feat["name"])
-                    parents.append(cluster_id)
-                    values.append(1)
+            root = _exp2_tree_root(tree)
+            ids, labels, parents, values = ["root"], [root.get("label", label)], [""], [_leaf_count(root)]
+            _sunburst_from_node(root, "root", ids, labels, parents, values, [0])
 
             fig = go.Figure(go.Sunburst(
                 ids=ids,
@@ -204,20 +248,12 @@ with tab2:
             fig.update_layout(margin=dict(t=10, l=0, r=0, b=0), height=550)
             st.plotly_chart(fig, use_container_width=True)
 
-            # Expandable cluster list with reviews
-            st.subheader("Clusters")
-            for cl in tree["clusters"]:
-                with st.expander(f"**{cl['label']}**  ({len(cl['features'])} features)"):
-                    for feat in cl["features"]:
-                        st.markdown(f"**{feat['name']}**")
-                        if feat["reviews"]:
-                            for rv in feat["reviews"]:
-                                st.markdown(f"> {rv[:200]}")
-                        else:
-                            st.caption("no review hits")
+            st.subheader(f"Cluster: {label}")
+            for child in root.get("children", []):
+                _render_tree_node(child)
 
         else:  # Flat list
-            st.subheader(f"All features ({len(flat['features'])})")
+            st.subheader(f"Features ({len(flat['features'])})")
             for feat in flat["features"]:
                 with st.expander(f"{feat['name']}  ({len(feat['reviews'])} reviews)"):
                     if feat["reviews"]:

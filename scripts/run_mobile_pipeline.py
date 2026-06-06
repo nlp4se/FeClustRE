@@ -23,6 +23,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import quote
 
 import pandas as pd
 import requests
@@ -33,7 +34,8 @@ sys.path.insert(0, str(PROJECT_ROOT))
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-CSV_FILE = PROJECT_ROOT / "data/input/endpoint_1_process_reviews/mobile_apps/mobilerec_reviews_pipeline.csv"
+#CSV_FILE = PROJECT_ROOT / "data/input/endpoint_1_process_reviews/mobile_apps/mobilerec_reviews_pipeline.csv"
+CSV_FILE = PROJECT_ROOT / "data/input/endpoint_1_process_reviews/mobile_apps/mobilerec_reviews_pipeline_large.csv"
 BASE_URL = "http://localhost:3000"
 CHECKPOINT_FILE = PROJECT_ROOT / "evaluation_results/mobile_pipeline_checkpoint.json"
 MODEL_TYPE = "t-frex"
@@ -106,7 +108,7 @@ def save_to_neo4j(app_name: str, selection: dict) -> dict | None:
     clustering = selection["candidate"].get("clustering", {})
     try:
         resp = requests.post(
-            f"{BASE_URL}/save_selected_clustering/{app_name}",
+            f"{BASE_URL}/save_selected_clustering/{quote(app_name, safe='')}",
             json={"clustering": clustering, "provenance": {
                 "model_type": MODEL_TYPE,
                 "embedding_type": EMBEDDING_TYPE,

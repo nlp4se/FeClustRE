@@ -456,7 +456,7 @@ def process_reviews_upload():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route('/save_selected_clustering/<app_name>', methods=['POST'])
+@app.route('/save_selected_clustering/<path:app_name>', methods=['POST'])
 def save_selected_clustering(app_name):
     try:
         data = request.get_json()
@@ -760,7 +760,7 @@ def get_feature_extractor():
         )
     return _services[cache_key]
 
-@app.route('/mini_taxonomies/<app_name>', methods=['GET'])
+@app.route('/mini_taxonomies/<path:app_name>', methods=['GET'])
 def get_mini_taxonomies(app_name):
     try:
         taxonomies = get_taxonomy_builder().get_mini_taxonomies_for_app(app_name)
