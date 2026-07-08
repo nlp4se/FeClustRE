@@ -1,12 +1,5 @@
 # FeClustRE
 
-[![arXiv](https://img.shields.io/badge/arXiv-2510.18799-b31b1b.svg)](https://doi.org/10.48550/arXiv.2510.18799)
-[![Python 3.10](https://img.shields.io/badge/python-3.10-blue.svg)](https://www.python.org/downloads/release/python-3100/)
-
-Hierarchical clustering and semantic tagging of app features from user reviews.
-
-> Tiessler & Motger. **FeClustRE: Hierarchical Clustering and Semantic Tagging of App Features from User Reviews.** arXiv:2510.18799, 2025.
-
 ---
 
 ## Table of Contents
