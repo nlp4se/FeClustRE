@@ -5,7 +5,8 @@ Generate Experiment 2 data: feature tree vs feature flat list.
 Requirements (advisor):
   - n = 60 rows
   - Each row: tree_json (hierarchical with reviews) + list_json (flat with reviews)
-  - Stratification between Q1 and Q3 values according to tree size
+  - Clusters filtered by n_features in [MIN_CLUSTER_SIZE, MAX_CLUSTER_SIZE]
+  - Stratified sampling by cluster size within that range
 
 Works from checkpoint + reviews CSV. No Neo4j needed.
 
@@ -49,6 +50,8 @@ REVIEWS_PER_FEATURE = 3
 RANDOM_SEED = 42
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 
+MIN_CLUSTER_SIZE = 10
+MAX_CLUSTER_SIZE = 20
 MIN_FEATURE_LENGTH = 3
 NOISE_FEATURES = {
     "app", "apps", "use", "used", "user", "users", "get", "got", "make",
@@ -275,11 +278,14 @@ def main():
         sys.exit(1)
 
     all_clusters = []
+    rejected_size = 0
     for app_name, app_clusters in raw_apps.items():
         meta = app_meta.get(app_name, {})
         for c in app_clusters:
             features = deduplicate_features(list(c["features"]))
-            if len(features) < 2:
+            n_features = len(features)
+            if not (MIN_CLUSTER_SIZE <= n_features <= MAX_CLUSTER_SIZE):
+                rejected_size += 1
                 continue
             all_clusters.append({
                 "app_name": app_name,
@@ -287,23 +293,28 @@ def main():
                 "app_category": meta.get("app_category", "unknown"),
                 "cluster_id": str(c["cluster_id"]),
                 "features": features,
-                "n_features": len(features),
+                "n_features": n_features,
                 "tree_id": f"{app_name}__cluster_{c['cluster_id']}",
                 "label": c.get("label"),
             })
 
-    logger.info(f"Non-singleton clusters after cleaning: {len(all_clusters)}")
+    logger.info(
+        f"Quality clusters: {len(all_clusters)} "
+        f"(size [{MIN_CLUSTER_SIZE}, {MAX_CLUSTER_SIZE}], {rejected_size} rejected)"
+    )
 
-    sizes = np.array([c["n_features"] for c in all_clusters])
-    q1 = int(np.percentile(sizes, 25))
-    q3 = int(np.percentile(sizes, 75))
-    logger.info(f"Tree size stats — min:{sizes.min()} Q1:{q1} median:{int(np.median(sizes))} Q3:{q3} max:{sizes.max()}")
+    if not all_clusters:
+        logger.error("No clusters found in size range. Adjust MIN/MAX_CLUSTER_SIZE or run pipeline.")
+        sys.exit(1)
 
-    eligible = [c for c in all_clusters if q1 <= c["n_features"] <= q3]
-    logger.info(f"Clusters in [Q1={q1}, Q3={q3}]: {len(eligible)}")
+    eligible = all_clusters
+    sizes = np.array([c["n_features"] for c in eligible])
+    logger.info(
+        f"Cluster size stats — min:{sizes.min()} median:{int(np.median(sizes))} max:{sizes.max()}"
+    )
 
     if len(eligible) < args.n:
-        logger.warning(f"Only {len(eligible)} clusters in IQR (target {args.n}). Using all available.")
+        logger.warning(f"Only {len(eligible)} eligible clusters (target {args.n}). Using all available.")
 
     has_pipeline_labels = any(c.get("label") for c in eligible)
     use_ollama = False
@@ -320,12 +331,26 @@ def main():
     by_size = defaultdict(list)
     for c in eligible:
         by_size[c["n_features"]].append(c)
-    logger.info(f"Size distribution in IQR: { {s: len(v) for s, v in sorted(by_size.items())} }")
+    logger.info(f"Size distribution: { {s: len(v) for s, v in sorted(by_size.items())} }")
 
     target_n = min(args.n, len(eligible))
     sampled = _stratified_sample(by_size, target_n)
     random.shuffle(sampled)
-    logger.info(f"Selected {len(sampled)} clusters (stratified by tree size in [Q1, Q3])")
+    logger.info(
+        f"Selected {len(sampled)} clusters "
+        f"(stratified by size in [{MIN_CLUSTER_SIZE}, {MAX_CLUSTER_SIZE}])"
+    )
+
+    bad_size = [
+        c for c in sampled
+        if not (MIN_CLUSTER_SIZE <= c["n_features"] <= MAX_CLUSTER_SIZE)
+    ]
+    if bad_size:
+        logger.error(
+            f"{len(bad_size)} sampled clusters outside "
+            f"[{MIN_CLUSTER_SIZE}, {MAX_CLUSTER_SIZE}] — aborting."
+        )
+        sys.exit(1)
 
     logger.info("Loading reviews CSV...")
     reviews_df = pd.read_csv(REVIEWS_CSV).dropna(subset=["review"])
