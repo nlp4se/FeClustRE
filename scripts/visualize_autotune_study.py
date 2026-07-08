@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate paper figures from autotune study outputs.
+Plot autotune study results.
 
 Requires:
   evaluation_results/autotune_study/sweep_records.csv
@@ -8,7 +8,7 @@ Requires:
 
 Usage:
   .venv/bin/python scripts/visualize_autotune_study.py
-  .venv/bin/python scripts/visualize_autotune_study.py --model hybrid
+  .venv/bin/python scripts/visualize_autotune_study.py --exemplar --model hybrid
 """
 from __future__ import annotations
 
@@ -57,7 +57,6 @@ def _sample_size_label(sample_size: int) -> str:
     return "all" if sample_size == 0 else str(sample_size)
 
 
-# Consistent extractor colors across autotune figures (tab10).
 MODEL_PLOT_ORDER = ["hybrid", "t-frex", "transfeatex"]
 MODEL_COLORS = dict(zip(MODEL_PLOT_ORDER, sns.color_palette("tab10", len(MODEL_PLOT_ORDER))))
 
@@ -71,143 +70,8 @@ def _save(fig, name: str) -> None:
     print(f"  saved {name}.pdf / .png")
 
 
-def fig_threshold_landscape(
-    sweep: pd.DataFrame, selection: pd.DataFrame, exemplar_app: str, model_type: str,
-) -> None:
-    """Figure A: metrics vs height_threshold for one exemplar app (full sample)."""
-    sweep = _filter_model(sweep, model_type)
-    selection = _filter_model(selection, model_type)
-    sub = sweep[(sweep["app_name"] == exemplar_app) & (sweep["sample_size"] == 0)].copy()
-    if sub.empty:
-        sub = sweep[sweep["app_name"] == exemplar_app].groupby("sample_size").max().reset_index()
-        sub = sweep[(sweep["app_name"] == exemplar_app) & (sweep["sample_size"] == sub["sample_size"].max())]
-
-    sel = selection[(selection["app_name"] == exemplar_app) & (selection["sample_size"] == sub["sample_size"].iloc[0])]
-    sel_thr = sel["selected_threshold"].iloc[0] if len(sel) else None
-
-    fig, axes = plt.subplots(2, 2, figsize=(10, 8), sharex=True)
-    fig.suptitle(
-        f"Threshold sweep — {exemplar_app} [{model_type}]\n"
-        f"(sample={sub['sample_size'].iloc[0]} reviews/app)",
-        fontsize=12,
-    )
-
-    x = sub["height_threshold"]
-    panels = [
-        (axes[0, 0], sub["silhouette_score"], "Silhouette", "#2a6fbb"),
-        (axes[0, 1], sub["davies_bouldin_score"], "Davies–Bouldin", "#c44e52"),
-        (axes[1, 0], sub["n_clusters"], "# clusters", "#55a868"),
-        (axes[1, 1], sub["singleton_ratio"], "Singleton ratio", "#8172b3"),
-    ]
-    for ax, y, label, color in panels:
-        ax.plot(x, y, "o-", color=color, linewidth=2, markersize=6)
-        ax.set_ylabel(label)
-        if sel_thr is not None:
-            ax.axvline(sel_thr, color="black", linestyle="--", linewidth=1.2, label="selected")
-        ax.legend(loc="best", fontsize=8)
-
-    axes[1, 0].set_xlabel("Height threshold (linkage distance)")
-    axes[1, 1].set_xlabel("Height threshold (linkage distance)")
-    fig.tight_layout()
-    _save(fig, f"fig_a_threshold_landscape_{model_type}")
-
-
-def fig_singleton_vs_silhouette(
-    sweep: pd.DataFrame, selection: pd.DataFrame, exemplar_app: str, model_type: str,
-) -> None:
-    """Figure B: why singleton penalty matters."""
-    sweep = _filter_model(sweep, model_type)
-    selection = _filter_model(selection, model_type)
-    sub = sweep[(sweep["app_name"] == exemplar_app) & (sweep["sample_size"] == 0)]
-    if sub.empty:
-        sample_size = sweep[sweep["app_name"] == exemplar_app]["sample_size"].max()
-        sub = sweep[(sweep["app_name"] == exemplar_app) & (sweep["sample_size"] == sample_size)]
-
-    sel_row = selection[(selection["app_name"] == exemplar_app) & (selection["sample_size"] == sub["sample_size"].iloc[0])]
-    if sel_row.empty:
-        return
-
-    sel_thr = sel_row["selected_threshold"].iloc[0]
-    max_sil_thr = sel_row.get("baseline_max_silhouette_threshold", pd.Series([np.nan])).iloc[0]
-
-    fig, ax = plt.subplots(figsize=(7, 5))
-    sc = ax.scatter(
-        sub["singleton_ratio"], sub["silhouette_score"],
-        c=sub["height_threshold"], cmap="viridis", s=80, edgecolors="white", linewidth=0.5,
-    )
-    plt.colorbar(sc, ax=ax, label="height threshold")
-
-    sel_pt = sub[np.isclose(sub["height_threshold"], sel_thr)]
-    if not sel_pt.empty:
-        ax.scatter(sel_pt["singleton_ratio"], sel_pt["silhouette_score"],
-                   s=200, facecolors="none", edgecolors="red", linewidths=2.5, label="selected (balanced)")
-
-    if pd.notna(max_sil_thr):
-        ms_pt = sub[np.isclose(sub["height_threshold"], max_sil_thr)]
-        if not ms_pt.empty:
-            ax.scatter(ms_pt["singleton_ratio"], ms_pt["silhouette_score"],
-                       s=200, facecolors="none", edgecolors="orange", linewidths=2, linestyle="--",
-                       label="max silhouette")
-
-    ax.set_xlabel("Singleton ratio")
-    ax.set_ylabel("Silhouette score")
-    ax.set_title(f"Silhouette vs singleton trade-off\n{exemplar_app} [{model_type}]")
-    ax.legend()
-    _save(fig, f"fig_b_silhouette_singleton_tradeoff_{model_type}")
-
-
-def fig_balanced_components(sweep: pd.DataFrame, exemplar_app: str, model_type: str) -> None:
-    """Figure C: balanced score breakdown for top-3 autotune candidates."""
-    sweep = _filter_model(sweep, model_type)
-    sub = sweep[
-        (sweep["app_name"] == exemplar_app)
-        & (sweep["sample_size"] == 0)
-        & (sweep["autotune_rank"].notna())
-        & (sweep["autotune_rank"] <= 3)
-        & (sweep["balanced_score"].notna())
-    ].sort_values("autotune_rank")
-
-    if sub.empty:
-        sample_size = sweep[sweep["app_name"] == exemplar_app]["sample_size"].max()
-        sub = sweep[
-            (sweep["app_name"] == exemplar_app)
-            & (sweep["sample_size"] == sample_size)
-            & (sweep["autotune_rank"].notna())
-            & (sweep["autotune_rank"] <= 3)
-            & (sweep["balanced_score"].notna())
-        ].sort_values("autotune_rank")
-
-    if sub.empty:
-        return
-
-    components = ["sil_component", "db_component", "cluster_penalty_component", "size_penalty_component"]
-    labels = ["Silhouette (40%)", "DB inv (30%)", "Cluster # (15%)", "Avg size (15%)"]
-
-    fig, ax = plt.subplots(figsize=(8, 5))
-    x = np.arange(len(sub))
-    bottom = np.zeros(len(sub))
-    colors = ["#4c72b0", "#55a868", "#c44e52", "#8172b3"]
-
-    for comp, label, color in zip(components, labels, colors):
-        vals = sub[comp].values
-        ax.bar(x, vals, bottom=bottom, label=label, color=color, width=0.6)
-        bottom += vals
-
-    ax.set_xticks(x)
-    ax.set_xticklabels(
-        [f"Rank {int(r)}\nτ={t:.2f}" for r, t in zip(sub["autotune_rank"], sub["height_threshold"])],
-        fontsize=9,
-    )
-    ax.set_ylabel("Balanced score (sum of components)")
-    ax.set_title(
-        f"Balanced selection among top-3 autotune candidates\n{exemplar_app} [{model_type}]"
-    )
-    ax.legend(loc="upper right", fontsize=8)
-    _save(fig, f"fig_c_balanced_components_{model_type}")
-
-
 def fig_sample_size_stability(selection: pd.DataFrame) -> None:
-    """Figure D: selected metrics vs reviews per app (mean ± std over apps)."""
+    """Selected metrics vs reviews per app (mean ± std over apps)."""
     selection = _ensure_model_type(selection)
     ok = selection[selection["selected_balanced_score"].notna()].copy()
     if ok.empty:
@@ -246,11 +110,11 @@ def fig_sample_size_stability(selection: pd.DataFrame) -> None:
         ax.legend(fontsize=8)
 
     fig.tight_layout()
-    _save(fig, "fig_d_sample_size_stability")
+    _save(fig, "sample_size_stability")
 
 
 def fig_baseline_comparison(selection: pd.DataFrame) -> None:
-    """Figure E: selected vs baselines (balanced score, aggregated)."""
+    """Selected configuration vs fixed/random τ baselines."""
     selection = _ensure_model_type(selection)
     ok = selection.dropna(subset=["selected_balanced_score"])
     if ok.empty:
@@ -305,83 +169,11 @@ def fig_baseline_comparison(selection: pd.DataFrame) -> None:
     ax.set_ylabel("Balanced score (mean ± std over all app × sample runs)")
     ax.set_title("Auto-selected configuration vs baselines")
     ax.legend(title="Extractor")
-
-    _save(fig, "fig_e_baseline_comparison")
-
-
-def fig_model_extractor_comparison(selection: pd.DataFrame) -> None:
-    """Figure F: compare extractors on selected balanced score and silhouette."""
-    selection = _ensure_model_type(selection)
-    ok = selection.dropna(subset=["selected_balanced_score"])
-    if ok.empty or ok["model_type"].nunique() < 2:
-        return
-
-    agg = (
-        ok.groupby("model_type", as_index=False)
-        .agg(
-            balanced_mean=("selected_balanced_score", "mean"),
-            balanced_std=("selected_balanced_score", "std"),
-            silhouette_mean=("selected_silhouette", "mean"),
-            silhouette_std=("selected_silhouette", "std"),
-            n_features_mean=("n_unique_features", "mean"),
-            n_runs=("app_name", "count"),
-        )
-        .sort_values("balanced_mean", ascending=False)
-    )
-
-    fig, axes = plt.subplots(1, 3, figsize=(12, 4))
-    x = np.arange(len(agg))
-    labels = agg["model_type"].tolist()
-
-    specs = [
-        (axes[0], "balanced_mean", "balanced_std", "Selected balanced score"),
-        (axes[1], "silhouette_mean", "silhouette_std", "Selected silhouette"),
-        (axes[2], "n_features_mean", None, "Mean unique features"),
-    ]
-    for ax, mean_col, std_col, title in specs:
-        yerr = agg[std_col] if std_col else None
-        ax.bar(x, agg[mean_col], yerr=yerr, capsize=4, color=sns.color_palette("Set2", len(agg)))
-        ax.set_xticks(x)
-        ax.set_xticklabels(labels, rotation=20, ha="right")
-        ax.set_title(title)
-
-    fig.suptitle("Feature extractor comparison (aggregated over apps × sample sizes)", fontsize=12)
     fig.tight_layout()
-    _save(fig, "fig_f_model_extractor_comparison")
+    _save(fig, "baseline_comparison")
 
 
-def write_summary_table(selection: pd.DataFrame) -> None:
-    """LaTeX-friendly summary for the paper."""
-    selection = _ensure_model_type(selection)
-    ok = selection.dropna(subset=["selected_balanced_score"])
-    if ok.empty:
-        return
-
-    rows = []
-    for model_type in sorted(ok["model_type"].unique()):
-        for sample_size in _ordered_sample_sizes(ok["sample_size"].unique()):
-            sub = ok[(ok["model_type"] == model_type) & (ok["sample_size"] == sample_size)]
-            if sub.empty:
-                continue
-            rows.append({
-                "model_type": model_type,
-                "sample_size": "all" if sample_size == 0 else sample_size,
-                "n_apps": len(sub),
-                "silhouette_mean": sub["selected_silhouette"].mean(),
-                "davies_bouldin_mean": sub["selected_davies_bouldin"].mean(),
-                "balanced_mean": sub["selected_balanced_score"].mean(),
-                "n_clusters_mean": sub["selected_n_clusters"].mean(),
-                "n_features_mean": sub["n_unique_features"].mean(),
-                "pct_beats_median": sub["selected_beats_baseline_median_threshold"].mean() * 100,
-                "pct_beats_max_sil": sub["selected_beats_baseline_max_silhouette"].mean() * 100,
-            })
-
-    out = STUDY_DIR / "summary_by_sample_size.csv"
-    pd.DataFrame(rows).to_csv(out, index=False)
-    print(f"  saved {out.name}")
-
-
-def pick_exemplar_app(sweep: pd.DataFrame, selection: pd.DataFrame, model_type: str) -> str:
+def _pick_exemplar_app(sweep: pd.DataFrame, selection: pd.DataFrame, model_type: str) -> str:
     selection = _filter_model(selection, model_type)
     full = selection[selection["sample_size"] == 0]
     if full.empty:
@@ -392,13 +184,155 @@ def pick_exemplar_app(sweep: pd.DataFrame, selection: pd.DataFrame, model_type: 
     return full.loc[full["n_unique_features"].idxmax(), "app_name"]
 
 
+def fig_threshold_landscape(
+    sweep: pd.DataFrame, selection: pd.DataFrame, exemplar_app: str, model_type: str,
+) -> None:
+    """Metrics vs height_threshold for one exemplar app."""
+    sweep = _filter_model(sweep, model_type)
+    selection = _filter_model(selection, model_type)
+    sub = sweep[(sweep["app_name"] == exemplar_app) & (sweep["sample_size"] == 0)].copy()
+    if sub.empty:
+        sub = sweep[sweep["app_name"] == exemplar_app].groupby("sample_size").max().reset_index()
+        sub = sweep[(sweep["app_name"] == exemplar_app) & (sweep["sample_size"] == sub["sample_size"].max())]
+
+    sel = selection[(selection["app_name"] == exemplar_app) & (selection["sample_size"] == sub["sample_size"].iloc[0])]
+    sel_thr = sel["selected_threshold"].iloc[0] if len(sel) else None
+
+    fig, axes = plt.subplots(2, 2, figsize=(10, 8), sharex=True)
+    fig.suptitle(
+        f"Threshold sweep — {exemplar_app} [{model_type}]\n"
+        f"(sample={sub['sample_size'].iloc[0]} reviews/app)",
+        fontsize=12,
+    )
+
+    x = sub["height_threshold"]
+    panels = [
+        (axes[0, 0], sub["silhouette_score"], "Silhouette", "#2a6fbb"),
+        (axes[0, 1], sub["davies_bouldin_score"], "Davies–Bouldin", "#c44e52"),
+        (axes[1, 0], sub["n_clusters"], "# clusters", "#55a868"),
+        (axes[1, 1], sub["singleton_ratio"], "Singleton ratio", "#8172b3"),
+    ]
+    for ax, y, label, color in panels:
+        ax.plot(x, y, "o-", color=color, linewidth=2, markersize=6)
+        ax.set_ylabel(label)
+        if sel_thr is not None:
+            ax.axvline(sel_thr, color="black", linestyle="--", linewidth=1.2, label="selected")
+        ax.legend(loc="best", fontsize=8)
+
+    axes[1, 0].set_xlabel("Height threshold (linkage distance)")
+    axes[1, 1].set_xlabel("Height threshold (linkage distance)")
+    fig.tight_layout()
+    _save(fig, f"threshold_landscape_{model_type}")
+
+
+def fig_singleton_vs_silhouette(
+    sweep: pd.DataFrame, selection: pd.DataFrame, exemplar_app: str, model_type: str,
+) -> None:
+    """Silhouette vs singleton ratio for one exemplar app."""
+    sweep = _filter_model(sweep, model_type)
+    selection = _filter_model(selection, model_type)
+    sub = sweep[(sweep["app_name"] == exemplar_app) & (sweep["sample_size"] == 0)]
+    if sub.empty:
+        sample_size = sweep[sweep["app_name"] == exemplar_app]["sample_size"].max()
+        sub = sweep[(sweep["app_name"] == exemplar_app) & (sweep["sample_size"] == sample_size)]
+
+    sel_row = selection[(selection["app_name"] == exemplar_app) & (selection["sample_size"] == sub["sample_size"].iloc[0])]
+    if sel_row.empty:
+        return
+
+    sel_thr = sel_row["selected_threshold"].iloc[0]
+    max_sil_thr = sel_row.get("baseline_max_silhouette_threshold", pd.Series([np.nan])).iloc[0]
+
+    fig, ax = plt.subplots(figsize=(7, 5))
+    sc = ax.scatter(
+        sub["singleton_ratio"], sub["silhouette_score"],
+        c=sub["height_threshold"], cmap="viridis", s=80, edgecolors="white", linewidth=0.5,
+    )
+    plt.colorbar(sc, ax=ax, label="height threshold")
+
+    sel_pt = sub[np.isclose(sub["height_threshold"], sel_thr)]
+    if not sel_pt.empty:
+        ax.scatter(sel_pt["singleton_ratio"], sel_pt["silhouette_score"],
+                   s=200, facecolors="none", edgecolors="red", linewidths=2.5, label="selected (balanced)")
+
+    if pd.notna(max_sil_thr):
+        ms_pt = sub[np.isclose(sub["height_threshold"], max_sil_thr)]
+        if not ms_pt.empty:
+            ax.scatter(ms_pt["singleton_ratio"], ms_pt["silhouette_score"],
+                       s=200, facecolors="none", edgecolors="orange", linewidths=2, linestyle="--",
+                       label="max silhouette")
+
+    ax.set_xlabel("Singleton ratio")
+    ax.set_ylabel("Silhouette score")
+    ax.set_title(f"Silhouette vs singleton trade-off\n{exemplar_app} [{model_type}]")
+    ax.legend()
+    fig.tight_layout()
+    _save(fig, f"silhouette_singleton_tradeoff_{model_type}")
+
+
+def fig_balanced_components(sweep: pd.DataFrame, exemplar_app: str, model_type: str) -> None:
+    """Balanced score breakdown for top-3 autotune candidates."""
+    sweep = _filter_model(sweep, model_type)
+    sub = sweep[
+        (sweep["app_name"] == exemplar_app)
+        & (sweep["sample_size"] == 0)
+        & (sweep["autotune_rank"].notna())
+        & (sweep["autotune_rank"] <= 3)
+        & (sweep["balanced_score"].notna())
+    ].sort_values("autotune_rank")
+
+    if sub.empty:
+        sample_size = sweep[sweep["app_name"] == exemplar_app]["sample_size"].max()
+        sub = sweep[
+            (sweep["app_name"] == exemplar_app)
+            & (sweep["sample_size"] == sample_size)
+            & (sweep["autotune_rank"].notna())
+            & (sweep["autotune_rank"] <= 3)
+            & (sweep["balanced_score"].notna())
+        ].sort_values("autotune_rank")
+
+    if sub.empty:
+        return
+
+    components = ["sil_component", "db_component", "cluster_penalty_component", "size_penalty_component"]
+    labels = ["Silhouette (40%)", "DB inv (30%)", "Cluster # (15%)", "Avg size (15%)"]
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    x = np.arange(len(sub))
+    bottom = np.zeros(len(sub))
+    colors = ["#4c72b0", "#55a868", "#c44e52", "#8172b3"]
+
+    for comp, label, color in zip(components, labels, colors):
+        vals = sub[comp].values
+        ax.bar(x, vals, bottom=bottom, label=label, color=color, width=0.6)
+        bottom += vals
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(
+        [f"Rank {int(r)}\nτ={t:.2f}" for r, t in zip(sub["autotune_rank"], sub["height_threshold"])],
+        fontsize=9,
+    )
+    ax.set_ylabel("Balanced score (sum of components)")
+    ax.set_title(
+        f"Balanced selection among top-3 autotune candidates\n{exemplar_app} [{model_type}]"
+    )
+    ax.legend(loc="upper right", fontsize=8)
+    fig.tight_layout()
+    _save(fig, f"balanced_components_{model_type}")
+
+
 def main():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="Plot autotune study results.")
+    parser.add_argument(
+        "--exemplar",
+        action="store_true",
+        help="Also plot per-app diagnostic figures (threshold sweep, trade-off, balanced components)",
+    )
     parser.add_argument(
         "--model",
-        default="t-frex",
+        default="hybrid",
         choices=MODEL_TYPES,
-        help="Extractor for exemplar figures A–C (default: t-frex)",
+        help="Extractor for --exemplar plots (default: hybrid)",
     )
     args = parser.parse_args()
 
@@ -408,21 +342,19 @@ def main():
 
     sweep = _ensure_model_type(load_study_csv(SWEEP_CSV))
     selection = _ensure_model_type(load_study_csv(SELECTION_CSV))
-    models_in_data = sorted(selection["model_type"].unique())
-    exemplar_model = args.model if args.model in models_in_data else models_in_data[0]
-    exemplar = pick_exemplar_app(sweep, selection, exemplar_model)
 
-    print(
-        f"Generating figures in {FIGURES_DIR} "
-        f"(models in data: {models_in_data}, exemplar: {exemplar} [{exemplar_model}])..."
-    )
-    fig_threshold_landscape(sweep, selection, exemplar, exemplar_model)
-    fig_singleton_vs_silhouette(sweep, selection, exemplar, exemplar_model)
-    fig_balanced_components(sweep, exemplar, exemplar_model)
+    print(f"Generating figures in {FIGURES_DIR}...")
     fig_sample_size_stability(selection)
     fig_baseline_comparison(selection)
-    fig_model_extractor_comparison(selection)
-    write_summary_table(selection)
+
+    if args.exemplar:
+        models_in_data = sorted(selection["model_type"].unique())
+        exemplar_model = args.model if args.model in models_in_data else models_in_data[0]
+        exemplar = _pick_exemplar_app(sweep, selection, exemplar_model)
+        print(f"  exemplar: {exemplar} [{exemplar_model}]")
+        fig_threshold_landscape(sweep, selection, exemplar, exemplar_model)
+        fig_singleton_vs_silhouette(sweep, selection, exemplar, exemplar_model)
+        fig_balanced_components(sweep, exemplar, exemplar_model)
 
     if CONFIG_JSON.exists():
         print(f"Config: {CONFIG_JSON}")

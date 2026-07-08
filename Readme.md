@@ -15,6 +15,7 @@ Hierarchical clustering and semantic tagging of app features from user reviews.
 - [Setup](#setup)
 - [Usage](#usage)
 - [Experiments](#experiments)
+  - [RQ₂ — Hierarchical clustering (autotune study)](#rq₂--hierarchical-clustering-autotune-study)
 - [Dataset](#dataset)
 - [Troubleshooting](#troubleshooting)
 
@@ -113,6 +114,55 @@ rm -f data/experiment1.csv data/experiment2.json data/experiment2_flat.csv
 
 # Full reset (pipeline + experiments)
 rm -f evaluation_results/mobile_pipeline_checkpoint.json
+```
+
+### RQ₂ — Hierarchical clustering (autotune study)
+
+Offline evaluation of hierarchical clustering and threshold auto-tuning on the 100-app MobileRec dataset (`data/input/endpoint_1_process_reviews/mobile_apps/mobilerec_reviews_pipeline_large.csv`). Clustering only — no Neo4j, Ollama, or LLM tagging.
+
+**Design** (see paper §Hierarchical Clustering):
+
+| Factor | Setting |
+|--------|---------|
+| Apps | 100 (all apps in dataset) |
+| Review subsample per app | $N \in \{50, 100, 200, 300, 500, 1000, \text{All}\}$ (`0` = all reviews in code) |
+| Feature extractors | `hybrid`, `transfeatex` (paper: syntactic-only), `t-frex` (paper: LLM-only) |
+| Embedding | `all-MiniLM-L6-v2` (`EMBEDDING_TYPE=allmini`) |
+| Linkage thresholds $\tau$ | 12 values, uniform on $[0.1, 0.9]$; partitions with $<2$ clusters discarded |
+| Auto-tuner | Rank by $\hat{s}=s\times(1-\rho)$; keep top 3; select $\tau^*$ by balanced score (silhouette + Davies–Bouldin + structural penalties) |
+| Baselines | Random $\tau$, median $\tau$, max-silhouette $\tau$, fixed $\tau{=}0.5$ |
+
+Constants and scoring live in `scripts/autotune_study_common.py`. Raw features are cached per review `uid` so larger $N$ reuses extraction from smaller subsamples; hybrid unions cached `t-frex` + `transfeatex` features.
+
+**Run**
+
+```bash
+# Requires TRANSFEATEX_URL for transfeatex / hybrid (see .env)
+.venv/bin/python scripts/run_autotune_study.py
+.venv/bin/python scripts/run_autotune_study.py --resume          # after interruption
+.venv/bin/python scripts/run_autotune_study.py --apps 5            # smoke test
+.venv/bin/python scripts/run_autotune_study.py --models hybrid t-frex
+
+.venv/bin/python scripts/visualize_autotune_study.py               # main figures
+.venv/bin/python scripts/visualize_autotune_study.py --exemplar   # optional per-app diagnostics
+```
+
+**Outputs** (`evaluation_results/autotune_study/`):
+
+| File | Role |
+|------|------|
+| `sweep_records.csv` | One row per (extractor, app, $N$, $\tau$) |
+| `selection_summary.csv` | One row per (extractor, app, $N$): selected $\tau^*$, metrics, baselines |
+| `config.json` | Recorded study parameters |
+| `figures/sample_size_stability.*` | Sample-size stability (all extractors) |
+| `figures/baseline_comparison.*` | Auto-tuner vs fixed/random $\tau$ baselines |
+
+**Reset**
+
+```bash
+rm -f evaluation_results/autotune_study/checkpoint.json
+rm -f evaluation_results/autotune_study/sweep_records.csv evaluation_results/autotune_study/selection_summary.csv
+# Optional: rm -rf evaluation_results/autotune_study/feature_cache
 ```
 
 ---
