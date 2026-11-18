@@ -44,3 +44,6 @@ Thumbs.db
 models/
 model_cache/
 huggingface/
+
+# Local-only documentation (not published)
+docs/
