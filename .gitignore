@@ -28,7 +28,12 @@ temp/
 
 # Test and experiment outputs generated locally
 test_cache/
-evaluation_results/
+evaluation_results/*
+!evaluation_results/autotune_study/
+evaluation_results/autotune_study/*
+!evaluation_results/autotune_study/selection_summary.csv
+!evaluation_results/autotune_study/sweep_records.csv
+!evaluation_results/autotune_study/config.json
 
 # Notebook and interactive tooling
 .ipynb_checkpoints/
