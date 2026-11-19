@@ -70,8 +70,18 @@ def _save(fig, name: str) -> None:
     print(f"  saved {name}.pdf / .png")
 
 
+# Paper figure "sample-size stability" (figures/4_framework/6_sample-size-stability.*).
+# Mean line per extractor; ±1 std shown as thin, light, horizontally dodged bars (no caps) so
+# extractors do not overlap; colour + marker per extractor so it also reads in grayscale;
+# fonts sized for a full-text-width figure.
+MODEL_LABELS = {"hybrid": "Hybrid", "t-frex": "LLM-only (T-FREX)", "transfeatex": "Syntactic-only (TransFeatEx)"}
+MODEL_MARKERS = {"hybrid": "o", "t-frex": "s", "transfeatex": "^"}
+MODEL_DODGE = {"hybrid": 0.0, "t-frex": -0.18, "transfeatex": 0.18}
+PAPER_FIGURE = PROJECT_ROOT / "figures" / "4_framework" / "6_sample-size-stability"
+
+
 def fig_sample_size_stability(selection: pd.DataFrame) -> None:
-    """Selected metrics vs reviews per app (mean ± std over apps)."""
+    """Selected metrics vs reviews per app (mean ± std over apps, dodged per extractor)."""
     selection = _ensure_model_type(selection)
     ok = selection[selection["selected_balanced_score"].notna()].copy()
     if ok.empty:
@@ -79,38 +89,53 @@ def fig_sample_size_stability(selection: pd.DataFrame) -> None:
 
     model_types = [m for m in MODEL_PLOT_ORDER if m in ok["model_type"].unique()]
     sample_sizes = _ordered_sample_sizes(ok["sample_size"].unique())
-    x_labels = [_sample_size_label(s) for s in sample_sizes]
+    x_labels = ["All" if s == 0 else str(s) for s in sample_sizes]
     xs = np.arange(len(sample_sizes))
 
-    fig, axes = plt.subplots(2, 2, figsize=(11, 8))
-    fig.suptitle("Stability across review sample size (mean ± std over apps)", fontsize=12)
+    rc = {
+        "font.family": "sans-serif",
+        "font.sans-serif": ["Helvetica", "Arial", "Liberation Sans", "DejaVu Sans"],
+        "axes.titlesize": 10, "axes.labelsize": 10, "legend.fontsize": 10,
+        "xtick.labelsize": 9, "ytick.labelsize": 9,
+        "mathtext.fontset": "custom", "mathtext.rm": "Liberation Sans",
+        "mathtext.it": "Liberation Sans:italic",
+        "pdf.fonttype": 42, "ps.fonttype": 42,
+    }
+    with plt.rc_context(rc):
+        fig, axes = plt.subplots(2, 2, figsize=(6.7, 5.4))
+        metric_specs = [
+            (axes[0, 0], "selected_silhouette", "Silhouette (higher is better)"),
+            (axes[0, 1], "selected_davies_bouldin", "Davies–Bouldin index (lower is better)"),
+            (axes[1, 0], "selected_n_clusters", "Number of clusters"),
+            (axes[1, 1], "selected_threshold", r"Selected threshold $\tau^*$"),
+        ]
+        for ax, col, title in metric_specs:
+            for mt in model_types:
+                sub = ok[ok["model_type"] == mt]
+                vals = [sub.loc[sub["sample_size"] == ss, col].dropna() for ss in sample_sizes]
+                means = np.array([v.mean() if len(v) else np.nan for v in vals])
+                stds = np.array([v.std() if len(v) > 1 else 0.0 for v in vals])
+                x = xs + MODEL_DODGE.get(mt, 0.0)
+                ax.errorbar(x, means, yerr=stds, fmt="none", ecolor=MODEL_COLORS[mt],
+                            elinewidth=1.0, alpha=0.45, capsize=0)
+                ax.plot(x, means, "-", marker=MODEL_MARKERS[mt], color=MODEL_COLORS[mt],
+                        linewidth=1.6, markersize=5, label=MODEL_LABELS.get(mt, mt))
+            ax.set_xticks(xs)
+            ax.set_xticklabels(x_labels)
+            ax.set_title(title)
+            ax.set_xlabel("Reviews per app ($N$)")
+        handles, labels = axes[0, 0].get_legend_handles_labels()
+        fig.legend(handles, labels, loc="upper center", ncol=len(labels), frameon=False,
+                   bbox_to_anchor=(0.5, 1.0))
+        fig.tight_layout(rect=(0, 0, 1, 0.95))
 
-    metric_specs = [
-        (axes[0, 0], "selected_silhouette", "Selected silhouette"),
-        (axes[0, 1], "selected_davies_bouldin", "Davies--Bouldin index"),
-        (axes[1, 0], "selected_n_clusters", "Selected # clusters"),
-        (axes[1, 1], "selected_threshold", "Selected threshold"),
-    ]
-    for ax, col, title in metric_specs:
-        for mt in model_types:
-            sub = ok[ok["model_type"] == mt]
-            means, stds = [], []
-            for ss in sample_sizes:
-                vals = sub.loc[sub["sample_size"] == ss, col].dropna()
-                means.append(vals.mean() if len(vals) else np.nan)
-                stds.append(vals.std() if len(vals) > 1 else 0.0)
-            ax.errorbar(
-                xs, means, yerr=stds, fmt="o-", capsize=4, linewidth=2,
-                color=MODEL_COLORS[mt], label=mt, markersize=6,
-            )
-        ax.set_xticks(xs)
-        ax.set_xticklabels(x_labels, rotation=30, ha="right")
-        ax.set_title(title)
-        ax.set_xlabel("Reviews per app")
-        ax.legend(fontsize=8)
-
-    fig.tight_layout()
-    _save(fig, "sample_size_stability")
+        PAPER_FIGURE.parent.mkdir(parents=True, exist_ok=True)
+        FIGURES_DIR.mkdir(parents=True, exist_ok=True)
+        for base in (FIGURES_DIR / "sample_size_stability", PAPER_FIGURE):
+            for ext in ("pdf", "png"):
+                fig.savefig(f"{base}.{ext}", bbox_inches="tight", dpi=300)
+        plt.close(fig)
+    print(f"  saved sample_size_stability.pdf / .png (+ {PAPER_FIGURE.relative_to(PROJECT_ROOT)}.pdf/.png)")
 
 
 def fig_baseline_comparison(selection: pd.DataFrame) -> None:

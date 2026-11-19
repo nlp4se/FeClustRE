@@ -1,0 +1,36 @@
+{
+  "threshold_range": [
+    0.1,
+    0.9
+  ],
+  "threshold_steps": 12,
+  "production_threshold_steps": 8,
+  "top_k_autotune": 3,
+  "selection_strategy": "balanced",
+  "random_seed": 42,
+  "sample_sizes_per_app": [
+    50,
+    100,
+    200,
+    300,
+    500,
+    1000,
+    0
+  ],
+  "model_types": [
+    "t-frex",
+    "transfeatex",
+    "hybrid"
+  ],
+  "embedding_type": "allmini",
+  "balanced_weights": {
+    "silhouette": 0.4,
+    "davies_bouldin_inv": 0.3,
+    "cluster_count_penalty": 0.15,
+    "avg_size_penalty": 0.15
+  },
+  "balanced_targets": {
+    "n_clusters": 5,
+    "avg_cluster_size": 10
+  }
+}
