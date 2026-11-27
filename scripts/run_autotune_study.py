@@ -380,6 +380,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--apps", type=int, default=0, help="Limit to first N apps (0 = all)")
+    parser.add_argument("--csv", type=Path, default=CSV_FILE, help="Reviews CSV (default: %(default)s)")
     parser.add_argument(
         "--models",
         nargs="+",
@@ -395,8 +396,8 @@ def main():
             logger.info(f"Migrated legacy rows in {csv_path.name} (added model_type=t-frex)")
     write_config(model_types)
 
-    logger.info(f"Loading {CSV_FILE.name}...")
-    reviews_df = pd.read_csv(CSV_FILE).dropna(subset=["review"])
+    logger.info(f"Loading {args.csv.name}...")
+    reviews_df = pd.read_csv(args.csv).dropna(subset=["review"])
     reviews_df["review"] = reviews_df["review"].astype(str)
 
     apps = sorted(reviews_df["app_name"].unique())
